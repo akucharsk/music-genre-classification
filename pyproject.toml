@@ -4,7 +4,9 @@ version = "0.1.0"
 description = "Music genre classification app built with Streamlit."
 readme = "README.md"
 authors = [
-    { name = "Antoni Kucharski", email = "antek.kuchar@gmail.com" }
+    { name = "Antoni Kucharski", email = "antek.kuchar@gmail.com" },
+    { name = "Szymon Majdak", email = "szymek.wrc@interia.pl" },
+    { name = "Bartłomiej Kózka", email = "bartek.kozka15@gmail.com" }
 ]
 requires-python = ">=3.13"
 dependencies = [
