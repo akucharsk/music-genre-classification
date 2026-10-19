@@ -1,0 +1,85 @@
+[project]
+name = "music-genre-classification"
+version = "0.1.0"
+description = "Music genre classification app built with Streamlit."
+readme = "README.md"
+authors = [
+    { name = "Antoni Kucharski", email = "antek.kuchar@gmail.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "streamlit>=1.66.0",
+]
+
+[project.scripts]
+music-genre-classification = "music_genre_classification.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.11.13,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "mypy>=2.4.0",
+    "pre-commit>=4.7.0",
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.17.1",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+src = ["src", "tests"]
+preview = true
+fix = false
+show-fixes = true
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    # Mutually exclusive docstring rules: keep D211 (blank-line-before-class) and D212 (multi-line-summary-first-line).
+    "incorrect-blank-line-before-class",
+    "multi-line-summary-second-line",
+    # Conflicts with the ruff formatter.
+    "missing-trailing-comma",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = [
+    "assert",                 # assert is how pytest works
+    "magic-value-comparison", # magic values are fine in assertions
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+[tool.ruff.lint.isort]
+known-first-party = ["music_genre_classification"]
+required-imports = ["from __future__ import annotations"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.pylint]
+max-args = 5
+max-branches = 10
+max-returns = 4
+max-statements = 40
+
+[tool.ruff.format]
+docstring-code-format = true
+
+[tool.mypy]
+strict = true
+python_version = "3.13"
+mypy_path = "src"
+warn_unreachable = true
+enable_error_code = ["ignore-without-code", "redundant-expr", "truthy-bool", "explicit-override"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = ["--strict-markers", "--strict-config", "-ra", "--cov=music_genre_classification", "--cov-report=term-missing"]
