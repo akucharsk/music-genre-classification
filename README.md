@@ -34,6 +34,22 @@ uv run music-genre-classification
 uv run streamlit run src/music_genre_classification/app.py
 ```
 
+## Jamendo
+
+The Jamendo tab searches the [Jamendo API](https://developer.jamendo.com/v3.0/tracks).
+Create a client id at [devportal.jamendo.com](https://devportal.jamendo.com/) and set
+`JAMENDO_CLIENT_ID` in the environment or in `.streamlit/secrets.toml` (git-ignored):
+
+```sh
+JAMENDO_CLIENT_ID=your_client_id uv run music-genre-classification
+```
+
+`.streamlit/secrets.toml`:
+
+```toml
+JAMENDO_CLIENT_ID = "your_client_id"
+```
+
 ## Development
 
 ```sh
