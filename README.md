@@ -34,6 +34,34 @@ uv run music-genre-classification
 uv run streamlit run src/music_genre_classification/app.py
 ```
 
+## Jamendo
+
+The Jamendo tab searches the [Jamendo API](https://developer.jamendo.com/v3.0/tracks).
+Create a client id at [devportal.jamendo.com](https://devportal.jamendo.com/) and set
+`JAMENDO_CLIENT_ID` in the environment or in `.streamlit/secrets.toml` (git-ignored):
+
+```sh
+JAMENDO_CLIENT_ID=your_client_id uv run music-genre-classification
+```
+
+`.streamlit/secrets.toml`:
+
+```toml
+JAMENDO_CLIENT_ID = "your_client_id"
+```
+
+## Preprocessing
+
+Download GTZAN from Kaggle and unpack the `genres_original` folder to `data/genres_original`, then run:
+
+```sh
+uv run python -m music_genre_classification.data_preprocessing
+```
+
+Each 30 s track is split into 10 segments and converted to 13 MFCC coefficients per frame. The result
+is written to `data/data.json` (git-ignored). Unreadable files (GTZAN has one corrupt jazz track) are
+skipped with a warning.
+
 ## Development
 
 ```sh
