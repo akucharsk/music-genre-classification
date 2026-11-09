@@ -13,12 +13,15 @@ import pytest
 from music_genre_classification.data_preprocessing import (
     SAMPLE_RATE,
     SAMPLES_PER_TRACK,
+    AudioError,
     DatasetError,
     MfccConfig,
     build_dataset,
+    extract_audio_mfcc,
     find_genres,
     save_dataset,
     split_segments,
+    split_windows,
 )
 
 if TYPE_CHECKING:
@@ -95,6 +98,7 @@ def test_build_dataset_labels_segments_and_skips_corrupt_tracks(tmp_path: Path) 
 
     assert data["genres"] == ["blues", "jazz"]
     assert data["labels"] == [0, 0, 0, 1, 1, 1]
+    assert data["tracks"] == [0, 0, 0, 1, 1, 1]
     assert len(data["mfcc"]) == 6
     assert len(data["mfcc"][0]) == CONFIG.frames_per_segment
     assert len(data["mfcc"][0][0]) == CONFIG.num_mfcc
@@ -103,8 +107,44 @@ def test_build_dataset_labels_segments_and_skips_corrupt_tracks(tmp_path: Path) 
 def test_save_dataset_round_trips(tmp_path: Path) -> None:
     """The JSON file contains the dataset and parent directories are created."""
     output = tmp_path / "nested" / "data.json"
-    data = {"genres": ["blues"], "labels": [0], "mfcc": [[[1.0, 2.0]]]}
+    data = {"genres": ["blues"], "labels": [0], "tracks": [0], "mfcc": [[[1.0, 2.0]]]}
 
     save_dataset(data, output)  # type: ignore[arg-type]
 
     assert json.loads(output.read_text(encoding="utf-8")) == data
+
+
+def test_split_windows_covers_signals_of_any_length() -> None:
+    """Every full window is returned, however long the signal is."""
+    size = CONFIG.samples_per_segment
+    signal = np.zeros(size * 5 + 10)
+
+    assert len(list(split_windows(signal, CONFIG))) == 5
+    assert list(split_windows(np.zeros(size - 1), CONFIG)) == []
+
+
+def test_extract_audio_mfcc_accepts_bytes_and_paths(tmp_path: Path) -> None:
+    """In-memory audio and files give identical features for the same recording."""
+    path = tmp_path / "clip.wav"
+    _write_track(path, samples=SAMPLES_PER_TRACK * 2)
+
+    from_path = extract_audio_mfcc(path, CONFIG)
+    from_bytes = extract_audio_mfcc(path.read_bytes(), CONFIG)
+
+    assert len(from_path) == 6
+    assert len(from_path[0]) == CONFIG.frames_per_segment
+    assert from_path == from_bytes
+
+
+def test_extract_audio_mfcc_returns_nothing_for_short_audio(tmp_path: Path) -> None:
+    """Audio shorter than one segment yields no segments."""
+    path = tmp_path / "short.wav"
+    _write_track(path, samples=1000)
+
+    assert extract_audio_mfcc(path, CONFIG) == []
+
+
+def test_extract_audio_mfcc_rejects_undecodable_audio() -> None:
+    """Bytes that are not audio raise AudioError."""
+    with pytest.raises(AudioError, match="decode"):
+        extract_audio_mfcc(b"not audio", CONFIG)

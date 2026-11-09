@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import io
 import json
 import logging
 import math
@@ -33,11 +34,16 @@ class DatasetError(Exception):
     """Raised when the dataset directory is missing or contains no genres."""
 
 
+class AudioError(Exception):
+    """Raised when audio bytes or a file cannot be decoded."""
+
+
 class MfccData(TypedDict):
-    """Serializable dataset: genre names, one label per segment, one MFCC matrix per segment."""
+    """Serializable dataset: genre names, plus per segment its label, source track and MFCCs."""
 
     genres: list[str]
     labels: list[int]
+    tracks: list[int]
     mfcc: list[list[list[float]]]
 
 
@@ -119,6 +125,23 @@ def split_segments(
             yield segment
 
 
+def split_windows(
+    signal: NDArray[np.floating], config: MfccConfig
+) -> Iterator[NDArray[np.floating]]:
+    """Cut a signal of any length into consecutive segment-sized windows.
+
+    Args:
+        signal: Mono audio samples.
+        config: Extraction parameters.
+
+    Yields:
+        Windows of exactly ``config.samples_per_segment`` samples; an incomplete tail is dropped.
+    """
+    size = config.samples_per_segment
+    for start in range(0, len(signal) - size + 1, size):
+        yield signal[start : start + size]
+
+
 def segment_mfcc(segment: NDArray[np.floating], config: MfccConfig) -> list[list[float]]:
     """Compute the MFCC matrix of one segment.
 
@@ -154,6 +177,31 @@ def extract_track(path: Path, config: MfccConfig) -> list[list[list[float]]]:
     return [matrix for matrix in matrices if len(matrix) == config.frames_per_segment]
 
 
+def extract_audio_mfcc(source: bytes | Path, config: MfccConfig) -> list[list[list[float]]]:
+    """Extract MFCC matrices from one audio file or in-memory recording of any length.
+
+    Uses the same segment size and MFCC parameters as dataset building, so the features match
+    what a model was trained on.
+
+    Args:
+        source: Audio file path or the raw bytes of an audio file (e.g. an upload or download).
+        config: Extraction parameters.
+
+    Returns:
+        One MFCC matrix per full segment; empty when the audio is shorter than one segment.
+
+    Raises:
+        AudioError: If the audio cannot be decoded.
+    """
+    target = io.BytesIO(source) if isinstance(source, bytes) else source
+    try:
+        signal, _ = librosa.load(target, sr=SAMPLE_RATE)
+    except Exception as error:
+        msg = "Could not decode the audio."
+        raise AudioError(msg) from error
+    return [segment_mfcc(window, config) for window in split_windows(signal, config)]
+
+
 def build_dataset(dataset_dir: Path, config: MfccConfig) -> MfccData:
     """Build the MFCC dataset for all genres found in a directory.
 
@@ -164,9 +212,10 @@ def build_dataset(dataset_dir: Path, config: MfccConfig) -> MfccData:
         config: Extraction parameters.
 
     Returns:
-        Genre names, per-segment labels and per-segment MFCC matrices.
+        Genre names, per-segment labels, per-segment track indices and MFCC matrices.
     """
-    data = MfccData(genres=[], labels=[], mfcc=[])
+    data = MfccData(genres=[], labels=[], tracks=[], mfcc=[])
+    track_id = 0
     for label, genre_dir in enumerate(find_genres(dataset_dir)):
         data["genres"].append(genre_dir.name)
         LOGGER.info("Processing genre: %s", genre_dir.name)
@@ -178,6 +227,8 @@ def build_dataset(dataset_dir: Path, config: MfccConfig) -> MfccData:
                 continue
             data["mfcc"].extend(matrices)
             data["labels"].extend([label] * len(matrices))
+            data["tracks"].extend([track_id] * len(matrices))
+            track_id += 1
     return data
 
 

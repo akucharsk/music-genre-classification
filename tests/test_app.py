@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import io
+import wave
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar, Protocol, Self
 
@@ -38,6 +40,29 @@ def test_app_accepts_an_audio_file() -> None:
     assert at.caption[0].value == "clip.wav"
 
 
+def test_analyze_shows_mfcc_for_an_uploaded_file() -> None:
+    """Analyzing a valid upload reports the extracted segments."""
+    at = AppTest.from_file(str(APP_PATH)).run()
+    at.file_uploader[0].set_value(("clip.wav", _wav_bytes(seconds=7), "audio/wav"))
+    at.run()
+    _clickable(at.button, "Analyze").click().run()
+
+    assert not at.exception
+    assert not at.error
+    assert any("2 segments" in item.value for item in at.caption)
+
+
+def test_analyze_reports_undecodable_uploads() -> None:
+    """Analyzing a broken upload shows an error instead of crashing."""
+    at = AppTest.from_file(str(APP_PATH)).run()
+    at.file_uploader[0].set_value(("clip.wav", b"RIFF", "audio/wav"))
+    at.run()
+    _clickable(at.button, "Analyze").click().run()
+
+    assert not at.exception
+    assert at.error[0].value == "Could not read this audio file."
+
+
 def test_jamendo_explains_a_missing_client_id(monkeypatch: pytest.MonkeyPatch) -> None:
     """Without a client id, the Jamendo tab explains how to set one."""
     monkeypatch.delenv("JAMENDO_CLIENT_ID", raising=False)
@@ -66,6 +91,17 @@ def test_jamendo_search_plays_and_pages(monkeypatch: pytest.MonkeyPatch) -> None
     assert not at.exception
     assert _FakeJamendo.queries[-1].page.offset == _FakeJamendo.queries[0].page.limit
     assert any(item.value == "Page two" for item in at.text)
+
+
+def _wav_bytes(*, seconds: int) -> bytes:
+    rate = 22050
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as file:
+        file.setnchannels(1)
+        file.setsampwidth(2)
+        file.setframerate(rate)
+        file.writeframes(b"\x10\x20" * rate * seconds)
+    return buffer.getvalue()
 
 
 class _FakeJamendo:

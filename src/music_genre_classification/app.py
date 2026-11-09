@@ -5,9 +5,15 @@ from __future__ import annotations
 
 import os
 
+import numpy as np
 import streamlit as st
 from streamlit.errors import StreamlitSecretNotFoundError
 
+from music_genre_classification.data_preprocessing import (
+    AudioError,
+    MfccConfig,
+    extract_audio_mfcc,
+)
 from music_genre_classification.jamendo import (
     MAX_DURATION_SECONDS,
     AcousticElectric,
@@ -35,6 +41,11 @@ from music_genre_classification.jamendo import (
 AUDIO_EXTENSIONS = ("wav", "mp3", "ogg", "flac", "m4a", "aac")
 PAGE_SIZES = (10, 20, 50)
 SECONDS_PER_MINUTE = 60
+MFCC_CONFIG = MfccConfig()
+MFCC_ROW_HEIGHT = 12
+ANALYZE_LABEL = "Analyze"
+DECODE_ERROR = "Could not read this audio file."
+TOO_SHORT = "The audio is shorter than one segment, nothing to analyze."
 QUERY_KEY = "jamendo_query"
 SEARCH_FORM_KEY = "jamendo-search"
 CLIENT_ID_SETTING = "JAMENDO_CLIENT_ID"
@@ -119,6 +130,37 @@ def _render_upload() -> None:
     if audio_file is not None:
         st.audio(audio_file, format=audio_file.type)
         st.caption(audio_file.name)
+        if st.button(ANALYZE_LABEL, key="analyze-upload"):
+            _render_analysis(audio_file.getvalue())
+
+
+def _render_analysis(audio: bytes) -> None:
+    """Extract MFCC features from audio and show them as an image."""
+    with st.spinner("Extracting features..."):
+        try:
+            segments = extract_audio_mfcc(audio, MFCC_CONFIG)
+        except AudioError:
+            st.error(DECODE_ERROR)
+            return
+    if not segments:
+        st.warning(TOO_SHORT)
+        return
+    st.caption(
+        f"{len(segments)} segments x {len(segments[0])} frames x {MFCC_CONFIG.num_mfcc} MFCCs"
+    )
+    st.image(_mfcc_image(segments), width="stretch", caption="MFCC over time")
+
+
+def _mfcc_image(segments: list[list[list[float]]]) -> np.ndarray:
+    """Join segment MFCCs along time and scale them to a grayscale image in [0, 1].
+
+    Returns:
+        Array with one block of rows per coefficient and one column per frame.
+    """
+    matrix = np.concatenate([np.asarray(segment) for segment in segments]).T
+    span = np.ptp(matrix)
+    scaled = (matrix - matrix.min()) / span if span else np.zeros_like(matrix)
+    return np.repeat(scaled, MFCC_ROW_HEIGHT, axis=0)
 
 
 def _render_jamendo() -> None:
@@ -311,6 +353,7 @@ def _render_track_details(client_id: str, track: Track, audio_format: str, key: 
     st.caption(_summary(track))
     _render_player(track, audio_format)
     _render_download(client_id, track, audio_format, key)
+    _render_track_analysis(client_id, track, key)
     if track.license_url:
         st.caption(f"License: {track.license_url}")
 
@@ -333,6 +376,19 @@ def _clock(duration: int) -> str:
 def _render_player(track: Track, audio_format: str) -> None:
     if is_jamendo_media_url(track.audio_url):
         st.audio(track.audio_url, format=audio_mime(audio_format))
+
+
+def _render_track_analysis(client_id: str, track: Track, key: str) -> None:
+    """Offer feature extraction for the streamable version of a track."""
+    if not is_jamendo_media_url(track.audio_url):
+        return
+    if st.button(ANALYZE_LABEL, key=f"analyze-{key}"):
+        try:
+            audio = download_audio(client_id, track.audio_url)
+        except JamendoError as error:
+            st.error(str(error))
+            return
+        _render_analysis(audio)
 
 
 def _render_download(client_id: str, track: Track, audio_format: str, key: str) -> None:
