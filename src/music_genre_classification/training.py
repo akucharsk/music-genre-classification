@@ -48,7 +48,12 @@ class Dataset:
 
 @dataclass(frozen=True, slots=True)
 class Split:
-    """Train and validation parts of a dataset."""
+    """Train and validation parts of a dataset.
+
+    Attributes:
+        train: Segments used to fit the model.
+        validation: Segments held out to measure accuracy.
+    """
 
     train: Dataset
     validation: Dataset
@@ -56,7 +61,12 @@ class Split:
 
 @dataclass(frozen=True, slots=True)
 class TrainResult:
-    """A trained model together with its validation accuracy."""
+    """A trained model together with its validation accuracy.
+
+    Attributes:
+        model: The fitted scikit-learn pipeline.
+        accuracy: Fraction of validation segments classified correctly.
+    """
 
     model: Pipeline
     accuracy: float
@@ -160,6 +170,15 @@ def main() -> None:
 
 
 def _subset(dataset: Dataset, index: NDArray[np.intp]) -> Dataset:
+    """Select segments of a dataset by index.
+
+    Args:
+        dataset: Dataset to select from.
+        index: Positions of the segments to keep.
+
+    Returns:
+        A dataset containing only the selected segments.
+    """
     return Dataset(
         genres=dataset.genres,
         features=dataset.features[index],

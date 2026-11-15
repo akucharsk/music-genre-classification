@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import os
+from typing import TYPE_CHECKING
 
 import numpy as np
 import streamlit as st
@@ -37,6 +38,9 @@ from music_genre_classification.jamendo import (
     download_filename,
     is_jamendo_media_url,
 )
+
+if TYPE_CHECKING:
+    from numpy.typing import NDArray
 
 AUDIO_EXTENSIONS = ("wav", "mp3", "ogg", "flac", "m4a", "aac")
 PAGE_SIZES = (10, 20, 50)
@@ -120,7 +124,7 @@ FORMAT_OPTIONS: dict[str, AudioFormat] = {
 
 
 def _render_upload() -> None:
-    """Show the local audio file picker."""
+    """Show the local audio file picker and its analysis button."""
     st.write("Upload an audio file to classify its genre.")
     audio_file = st.file_uploader(
         "Audio file",
@@ -135,7 +139,11 @@ def _render_upload() -> None:
 
 
 def _render_analysis(audio: bytes) -> None:
-    """Extract MFCC features from audio and show them as an image."""
+    """Extract MFCC features from audio and show them as an image.
+
+    Args:
+        audio: Raw bytes of an audio file.
+    """
     with st.spinner("Extracting features..."):
         try:
             segments = extract_audio_mfcc(audio, MFCC_CONFIG)
@@ -151,8 +159,11 @@ def _render_analysis(audio: bytes) -> None:
     st.image(_mfcc_image(segments), width="stretch", caption="MFCC over time")
 
 
-def _mfcc_image(segments: list[list[list[float]]]) -> np.ndarray:
+def _mfcc_image(segments: list[list[list[float]]]) -> NDArray[np.float64]:
     """Join segment MFCCs along time and scale them to a grayscale image in [0, 1].
+
+    Args:
+        segments: One MFCC matrix (frames by coefficients) per audio segment.
 
     Returns:
         Array with one block of rows per coefficient and one column per frame.
@@ -174,10 +185,20 @@ def _render_jamendo() -> None:
 
 
 def _client_id() -> str | None:
+    """Find the configured Jamendo client id.
+
+    Returns:
+        The client id from the environment or Streamlit secrets, or None when unset.
+    """
     return configured_client_id(os.environ.get(CLIENT_ID_SETTING), _secret_client_id())
 
 
 def _secret_client_id() -> object:
+    """Read the client id from Streamlit secrets.
+
+    Returns:
+        The secret value, or None when secrets or the key are missing.
+    """
     try:
         return st.secrets[CLIENT_ID_SETTING]
     except (KeyError, StreamlitSecretNotFoundError):
@@ -185,6 +206,11 @@ def _secret_client_id() -> object:
 
 
 def _run_search(client_id: str) -> None:
+    """Show the search form and the results of the last submitted query.
+
+    Args:
+        client_id: Jamendo client id.
+    """
     submitted = _search_form()
     if submitted is not None:
         st.session_state[QUERY_KEY] = submitted
@@ -194,7 +220,11 @@ def _run_search(client_id: str) -> None:
 
 
 def _search_form() -> TrackQuery | None:
-    """Return a query when the user submits the search form."""
+    """Show the search form.
+
+    Returns:
+        A query when the user submits the form, otherwise None.
+    """
     with st.form(SEARCH_FORM_KEY):
         search_text = st.text_input("Search", placeholder="Track, artist, album, or tag")
         with st.expander("Filters"):
@@ -216,6 +246,11 @@ def _search_form() -> TrackQuery | None:
 
 
 def _text_filter_inputs() -> tuple[str, tuple[str, ...], TagMode, str]:
+    """Show the artist, genre, and language inputs.
+
+    Returns:
+        The artist, selected genres, genre match mode, and lyrics language.
+    """
     artist = st.text_input("Artist")
     selected = st.multiselect("Genres", GENRES)
     tags = tuple(str(tag) for tag in selected)
@@ -232,6 +267,11 @@ def _text_filter_inputs() -> tuple[str, tuple[str, ...], TagMode, str]:
 
 
 def _sound_filter_inputs() -> SoundFilters:
+    """Show the vocals, acoustics, singer, and speed inputs.
+
+    Returns:
+        The selected sound filters.
+    """
     vocal_label = str(st.selectbox("Vocals", list(VOCAL_OPTIONS)))
     acoustic_label = str(st.selectbox("Acoustics", list(ACOUSTIC_OPTIONS)))
     gender_label = str(st.selectbox("Singer", list(GENDER_OPTIONS)))
@@ -246,6 +286,11 @@ def _sound_filter_inputs() -> SoundFilters:
 
 
 def _span_filter_inputs() -> RangeFilters:
+    """Show the featured and duration inputs.
+
+    Returns:
+        The selected range filters.
+    """
     featured = st.checkbox("Featured tracks only")
     duration_min = st.number_input(
         "Minimum duration (seconds)",
@@ -271,6 +316,11 @@ def _span_filter_inputs() -> RangeFilters:
 
 
 def _page_inputs() -> PageRequest:
+    """Show the sort, audio format, and page size inputs.
+
+    Returns:
+        The selected page request.
+    """
     order_label = str(st.selectbox("Sort", list(ORDER_OPTIONS)))
     format_label = str(st.selectbox("Audio format", list(FORMAT_OPTIONS)))
     limit = int(st.selectbox("Tracks per page", PAGE_SIZES))
@@ -282,6 +332,12 @@ def _page_inputs() -> PageRequest:
 
 
 def _show_results(client_id: str, query: TrackQuery) -> None:
+    """Search Jamendo and show the matching tracks.
+
+    Args:
+        client_id: Jamendo client id.
+        query: Search to run.
+    """
     try:
         page = _fetch_page(client_id, query)
     except JamendoError as exc:
@@ -298,11 +354,26 @@ def _show_results(client_id: str, query: TrackQuery) -> None:
 
 
 def _fetch_page(client_id: str, query: TrackQuery) -> TrackPage:
+    """Fetch one page of results while showing a spinner.
+
+    Args:
+        client_id: Jamendo client id.
+        query: Search to run.
+
+    Returns:
+        The requested page of tracks.
+    """
     with st.spinner("Searching Jamendo"), JamendoClient(client_id) as client:
         return client.search_tracks(query)
 
 
 def _turn_page(query: TrackQuery, page: TrackPage) -> None:
+    """Show the page position and switch pages when a paging button is pressed.
+
+    Args:
+        query: Query that produced the page.
+        page: Page currently shown.
+    """
     st.caption(_page_label(page))
     updated = _page_controls(query, page)
     if updated is not None:
@@ -311,6 +382,14 @@ def _turn_page(query: TrackQuery, page: TrackPage) -> None:
 
 
 def _page_label(page: TrackPage) -> str:
+    """Describe the range of tracks on a page.
+
+    Args:
+        page: Page to describe.
+
+    Returns:
+        Text such as ``1-10 of 42``.
+    """
     if not page.tracks:
         return f"0 of {page.total}"
     start = page.offset + 1
@@ -319,6 +398,15 @@ def _page_label(page: TrackPage) -> str:
 
 
 def _page_controls(query: TrackQuery, page: TrackPage) -> TrackQuery | None:
+    """Show the previous and next buttons.
+
+    Args:
+        query: Query that produced the page.
+        page: Page currently shown.
+
+    Returns:
+        The query for the requested page, or None when no button was pressed.
+    """
     previous_column, next_column = st.columns(2)
     with previous_column:
         previous = st.button("Previous page", disabled=page.offset <= 0)
@@ -332,11 +420,26 @@ def _page_controls(query: TrackQuery, page: TrackPage) -> TrackQuery | None:
 
 
 def _render_tracks(client_id: str, page: TrackPage, audio_format: str) -> None:
+    """Show every track on a page.
+
+    Args:
+        client_id: Jamendo client id.
+        page: Page to show.
+        audio_format: Jamendo audio format code of the playback and downloads.
+    """
     for index, track in enumerate(page.tracks):
         _render_track(client_id, track, audio_format, f"{page.offset}-{index}")
 
 
 def _render_track(client_id: str, track: Track, audio_format: str, key: str) -> None:
+    """Show one track in a bordered container, with its cover when available.
+
+    Args:
+        client_id: Jamendo client id.
+        track: Track to show.
+        audio_format: Jamendo audio format code of the playback and download.
+        key: Unique suffix for the widget keys of this track.
+    """
     with st.container(border=True):
         if is_jamendo_media_url(track.image_url):
             artwork, details = st.columns((1, 4))
@@ -349,6 +452,14 @@ def _render_track(client_id: str, track: Track, audio_format: str, key: str) -> 
 
 
 def _render_track_details(client_id: str, track: Track, audio_format: str, key: str) -> None:
+    """Show the title, player, buttons, and license of a track.
+
+    Args:
+        client_id: Jamendo client id.
+        track: Track to show.
+        audio_format: Jamendo audio format code of the playback and download.
+        key: Unique suffix for the widget keys of this track.
+    """
     st.text(track.name)
     st.caption(_summary(track))
     _render_player(track, audio_format)
@@ -359,6 +470,14 @@ def _render_track_details(client_id: str, track: Track, audio_format: str, key: 
 
 
 def _summary(track: Track) -> str:
+    """Summarize a track on one line.
+
+    Args:
+        track: Track to describe.
+
+    Returns:
+        Artist, album, duration, and genres separated by bars.
+    """
     parts = [track.artist_name]
     if track.album_name:
         parts.append(track.album_name)
@@ -369,17 +488,37 @@ def _summary(track: Track) -> str:
 
 
 def _clock(duration: int) -> str:
+    """Format a duration as minutes and seconds.
+
+    Args:
+        duration: Length in seconds.
+
+    Returns:
+        Text such as ``2:05``.
+    """
     minutes, seconds = divmod(max(duration, 0), SECONDS_PER_MINUTE)
     return f"{minutes}:{seconds:02d}"
 
 
 def _render_player(track: Track, audio_format: str) -> None:
+    """Show an audio player for the track's stream.
+
+    Args:
+        track: Track to play.
+        audio_format: Jamendo audio format code of the stream.
+    """
     if is_jamendo_media_url(track.audio_url):
         st.audio(track.audio_url, format=audio_mime(audio_format))
 
 
 def _render_track_analysis(client_id: str, track: Track, key: str) -> None:
-    """Offer feature extraction for the streamable version of a track."""
+    """Offer feature extraction for the streamable version of a track.
+
+    Args:
+        client_id: Jamendo client id.
+        track: Track to analyze.
+        key: Unique suffix for the widget key of this track.
+    """
     if not is_jamendo_media_url(track.audio_url):
         return
     if st.button(ANALYZE_LABEL, key=f"analyze-{key}"):
@@ -392,13 +531,25 @@ def _render_track_analysis(client_id: str, track: Track, key: str) -> None:
 
 
 def _render_download(client_id: str, track: Track, audio_format: str, key: str) -> None:
-    """Offer a file download when the artist allows it."""
+    """Offer a file download when the artist allows it.
+
+    Args:
+        client_id: Jamendo client id.
+        track: Track to download.
+        audio_format: Jamendo audio format code of the download.
+        key: Unique suffix for the widget key of this track.
+    """
     if not track.can_download or not is_jamendo_media_url(track.download_url):
         st.caption("Download disabled by the artist")
         return
     url = track.download_url
 
     def _fetch() -> bytes:
+        """Download the track when the button is pressed.
+
+        Returns:
+            The audio file contents.
+        """
         return download_audio(client_id, url)
 
     st.download_button(

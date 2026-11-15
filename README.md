@@ -62,6 +62,17 @@ Each 30 s track is split into 10 segments and converted to 13 MFCC coefficients 
 is written to `data/data.json` (git-ignored). Unreadable files (GTZAN has one corrupt jazz track) are
 skipped with a warning.
 
+## Makefile
+
+`make` is the single entry point. Without arguments it opens an interactive menu: type the number of
+an action and press Enter. Individual targets can be run directly, `make help` lists them:
+
+```sh
+make            # interactive menu
+make run        # start the app
+make check      # format check, lint, mypy, docstrings, tests (what CI runs)
+```
+
 ## Development
 
 ```sh
@@ -69,6 +80,11 @@ uv run ruff check        # lint (all rules enabled)
 uv run ruff format       # format
 uv run mypy src tests    # type-check (strict)
 uv run pytest            # tests
+uv run pydoclint src     # docstrings match function signatures (Google style)
+uv run interrogate src   # every function has a docstring
 ```
+
+Every function needs a Google-style docstring with `Args:`, `Returns:` and `Raises:` sections where
+they apply (classes document their fields under `Attributes:`).
 
 CI runs all of the above on every push to `main` and on pull requests.

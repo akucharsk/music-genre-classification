@@ -29,6 +29,10 @@ jobs:
         run: uv run ruff format --check
       - name: Mypy
         run: uv run mypy src tests
+      - name: Docstrings
+        run: |
+          uv run pydoclint src
+          uv run interrogate src
 
   test:
     name: Tests

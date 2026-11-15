@@ -17,3 +17,9 @@ repos:
         language: system
         types: [python]
         pass_filenames: false
+      - id: docstrings
+        name: docstrings
+        entry: bash -c 'uv run pydoclint src && uv run interrogate src'
+        language: system
+        types: [python]
+        pass_filenames: false
