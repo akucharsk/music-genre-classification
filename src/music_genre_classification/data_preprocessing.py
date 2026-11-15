@@ -39,7 +39,14 @@ class AudioError(Exception):
 
 
 class MfccData(TypedDict):
-    """Serializable dataset: genre names, plus per segment its label, source track and MFCCs."""
+    """Serializable dataset: genre names, plus per segment its label, source track and MFCCs.
+
+    Attributes:
+        genres: Genre names; a label is an index into this list.
+        labels: Genre index of every segment.
+        tracks: Index of the source track of every segment.
+        mfcc: MFCC matrix (frames by coefficients) of every segment.
+    """
 
     genres: list[str]
     labels: list[int]

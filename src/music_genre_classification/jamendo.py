@@ -90,7 +90,15 @@ class JamendoError(Exception):
 
 @dataclass(frozen=True, slots=True)
 class TextFilters:
-    """Free-text, artist, language, and genre filters."""
+    """Free-text, artist, language, and genre filters.
+
+    Attributes:
+        text: Free-text search over track, artist, album, and tag names.
+        artist: Artist name to match.
+        language: Two-letter lyrics language code, or None for any.
+        tags: Genre tags to match.
+        tag_mode: Whether a track must match all tags or any of them.
+    """
 
     text: str = ""
     artist: str = ""
@@ -101,7 +109,14 @@ class TextFilters:
 
 @dataclass(frozen=True, slots=True)
 class SoundFilters:
-    """Timbre and performance filters."""
+    """Timbre and performance filters.
+
+    Attributes:
+        vocal_instrumental: Restrict to vocal or instrumental tracks, or None for any.
+        acoustic_electric: Restrict to acoustic or electric tracks, or None for any.
+        gender: Restrict to male or female vocals, or None for any.
+        speeds: Tempo classes to match; empty for any.
+    """
 
     vocal_instrumental: VocalInstrumental | None = None
     acoustic_electric: AcousticElectric | None = None
@@ -111,7 +126,13 @@ class SoundFilters:
 
 @dataclass(frozen=True, slots=True)
 class RangeFilters:
-    """Featured flag and duration window, in seconds."""
+    """Featured flag and duration window, in seconds.
+
+    Attributes:
+        featured: Whether to return only featured tracks.
+        duration_min: Minimum duration in seconds, or None for no lower bound.
+        duration_max: Maximum duration in seconds, or None for no upper bound.
+    """
 
     featured: bool = False
     duration_min: int | None = None
@@ -120,7 +141,14 @@ class RangeFilters:
 
 @dataclass(frozen=True, slots=True)
 class PageRequest:
-    """Sort order, audio format, and result window."""
+    """Sort order, audio format, and result window.
+
+    Attributes:
+        order: Jamendo sort order.
+        audio_format: Audio format used for streaming and downloads.
+        limit: Maximum number of tracks on the page.
+        offset: Index of the first track on the page.
+    """
 
     order: str = "relevance"
     audio_format: AudioFormat = "mp32"
@@ -130,7 +158,14 @@ class PageRequest:
 
 @dataclass(frozen=True, slots=True)
 class TrackQuery:
-    """A paginated Jamendo track search."""
+    """A paginated Jamendo track search.
+
+    Attributes:
+        text: Text, artist, language, and genre filters.
+        sound: Timbre and performance filters.
+        span: Featured flag and duration window.
+        page: Sort order, audio format, and result window.
+    """
 
     text: TextFilters = field(default_factory=TextFilters)
     sound: SoundFilters = field(default_factory=SoundFilters)
@@ -138,11 +173,21 @@ class TrackQuery:
     page: PageRequest = field(default_factory=PageRequest)
 
     def page_at(self, offset: int) -> TrackQuery:
-        """Return a copy of this query starting at offset."""
+        """Return a copy of this query starting at another offset.
+
+        Args:
+            offset: Index of the first track of the new page.
+
+        Returns:
+            A query identical to this one except for the page offset.
+        """
         return replace(self, page=replace(self.page, offset=offset))
 
     def to_params(self, client_id: str) -> dict[str, str]:
         """Build the query parameters for the tracks endpoint.
+
+        Args:
+            client_id: Jamendo client id to send with the request.
 
         Returns:
             Query parameters for the tracks endpoint.
@@ -156,7 +201,21 @@ class TrackQuery:
 
 @dataclass(frozen=True, slots=True)
 class Track:
-    """A Jamendo track that can be played or downloaded."""
+    """A Jamendo track that can be played or downloaded.
+
+    Attributes:
+        id: Jamendo track id.
+        name: Track title.
+        artist_name: Name of the artist.
+        album_name: Album title, empty when unknown.
+        duration: Length in seconds.
+        audio_url: Streaming URL.
+        download_url: Download URL, empty when unavailable.
+        download_allowed: Whether the artist allows downloading.
+        image_url: Cover image URL, empty when unavailable.
+        license_url: Creative Commons license URL, empty when unknown.
+        genres: Genre tags of the track.
+    """
 
     id: str
     name: str
@@ -172,13 +231,24 @@ class Track:
 
     @property
     def can_download(self) -> bool:
-        """Whether the artist allows this track to be downloaded."""
+        """Whether the artist allows this track to be downloaded.
+
+        Returns:
+            True when downloading is allowed and a download URL exists.
+        """
         return self.download_allowed and bool(self.download_url)
 
 
 @dataclass(frozen=True, slots=True)
 class TrackPage:
-    """One page of Jamendo search results."""
+    """One page of Jamendo search results.
+
+    Attributes:
+        tracks: Tracks on this page.
+        total: Number of tracks matching the whole search.
+        offset: Index of the first track on this page.
+        limit: Maximum number of tracks per page.
+    """
 
     tracks: tuple[Track, ...]
     total: int
@@ -198,6 +268,11 @@ class JamendoClient:
     ) -> None:
         """Open a client for the given Jamendo client id.
 
+        Args:
+            client_id: Jamendo client id; surrounding whitespace is ignored.
+            http: HTTP client to reuse; a new one is created and owned when omitted.
+            base_url: Root URL of the Jamendo API.
+
         Raises:
             JamendoError: If the client id is blank.
         """
@@ -215,15 +290,30 @@ class JamendoClient:
             self._http.close()
 
     def __enter__(self) -> Self:
-        """Return this client for use in a with-statement."""
+        """Return this client for use in a with-statement.
+
+        Returns:
+            This client.
+        """
         return self
 
     def __exit__(self, *_exc: object) -> None:
-        """Close the owned HTTP client."""
+        """Close the owned HTTP client.
+
+        Args:
+            *_exc: Exception details, ignored.
+        """
         self.close()
 
     def search_tracks(self, query: TrackQuery) -> TrackPage:
-        """Return one page of tracks matching query."""
+        """Return one page of tracks matching a query.
+
+        Args:
+            query: Search to run.
+
+        Returns:
+            The requested page of tracks.
+        """
         _validate(query)
         body = self._read(self._tracks_url, query.to_params(self._client_id))
         return _parse_page(_decode(body), offset=query.page.offset, limit=query.page.limit)
@@ -231,12 +321,28 @@ class JamendoClient:
     def download(self, url: str) -> bytes:
         """Download audio bytes from a Jamendo URL.
 
+        Args:
+            url: Jamendo media URL.
+
         Returns:
             The audio file contents.
         """
         return self._read(url, None)
 
     def _read(self, url: str, params: Mapping[str, str] | None) -> bytes:
+        """Fetch a Jamendo URL and return the response body.
+
+        Args:
+            url: Jamendo media or API URL.
+            params: Query parameters to send, if any.
+
+        Returns:
+            The response body.
+
+        Raises:
+            JamendoError: If the URL or its redirect target is not on Jamendo, or the
+                request fails.
+        """
         if not is_jamendo_media_url(url):
             raise JamendoError(UNEXPECTED_HOST)
         try:
@@ -250,7 +356,14 @@ class JamendoClient:
 
 
 def configured_client_id(*candidates: object) -> str | None:
-    """Return the first non-empty string among client id candidates."""
+    """Return the first non-empty string among client id candidates.
+
+    Args:
+        *candidates: Possible client ids, e.g. from the environment or secrets.
+
+    Returns:
+        The first non-blank candidate without surrounding whitespace, or None.
+    """
     for candidate in candidates:
         if isinstance(candidate, str):
             stripped = candidate.strip()
@@ -262,6 +375,10 @@ def configured_client_id(*candidates: object) -> str | None:
 def download_audio(client_id: str, url: str) -> bytes:
     """Download a Jamendo track and return its bytes.
 
+    Args:
+        client_id: Jamendo client id.
+        url: Jamendo media URL.
+
     Returns:
         The audio file contents.
     """
@@ -270,19 +387,41 @@ def download_audio(client_id: str, url: str) -> bytes:
 
 
 def download_filename(track: Track, audio_format: str) -> str:
-    """Return a safe file name for a downloaded track."""
+    """Return a safe file name for a downloaded track.
+
+    Args:
+        track: Track being downloaded.
+        audio_format: Jamendo audio format code.
+
+    Returns:
+        File name made of the artist and title with the format's extension.
+    """
     extension, _mime = _audio_details(audio_format)
     return f"{_filename_stem(track)}.{extension}"
 
 
 def audio_mime(audio_format: str) -> str:
-    """Return the MIME type for a Jamendo audio format code."""
+    """Return the MIME type for a Jamendo audio format code.
+
+    Args:
+        audio_format: Jamendo audio format code.
+
+    Returns:
+        The MIME type of the format.
+    """
     _extension, mime = _audio_details(audio_format)
     return mime
 
 
 def is_jamendo_media_url(url: str) -> bool:
-    """Return whether url is an https resource on a Jamendo host."""
+    """Return whether a URL is an https resource on a Jamendo host.
+
+    Args:
+        url: URL to check.
+
+    Returns:
+        True for https URLs on jamendo.com or its subdomains.
+    """
     parsed = urlsplit(url)
     host = parsed.hostname
     if parsed.scheme != "https" or host is None:
@@ -292,10 +431,24 @@ def is_jamendo_media_url(url: str) -> bool:
 
 
 def _new_http() -> httpx.Client:
+    """Create the HTTP client used when none is supplied.
+
+    Returns:
+        A client with a timeout that follows redirects.
+    """
     return httpx.Client(timeout=REQUEST_TIMEOUT_SECONDS, follow_redirects=True)
 
 
 def _page_params(client_id: str, page: PageRequest) -> dict[str, str]:
+    """Build the query parameters shared by every search.
+
+    Args:
+        client_id: Jamendo client id.
+        page: Sort order, format, and result window.
+
+    Returns:
+        Base query parameters.
+    """
     return {
         "client_id": client_id,
         "format": RESPONSE_FORMAT,
@@ -312,6 +465,12 @@ def _page_params(client_id: str, page: PageRequest) -> dict[str, str]:
 
 
 def _apply_text(params: dict[str, str], filters: TextFilters) -> None:
+    """Add text, artist, language, and tag filters to the parameters.
+
+    Args:
+        params: Query parameters, modified in place.
+        filters: Text filters to apply.
+    """
     _assign(params, "search", filters.text)
     _assign(params, "artist_name", filters.artist)
     _assign(params, "lang", _language(filters.language))
@@ -320,6 +479,12 @@ def _apply_text(params: dict[str, str], filters: TextFilters) -> None:
 
 
 def _apply_sound(params: dict[str, str], filters: SoundFilters) -> None:
+    """Add timbre and performance filters to the parameters.
+
+    Args:
+        params: Query parameters, modified in place.
+        filters: Sound filters to apply.
+    """
     _assign(params, "vocalinstrumental", filters.vocal_instrumental)
     _assign(params, "acousticelectric", filters.acoustic_electric)
     _assign(params, "gender", filters.gender)
@@ -327,6 +492,12 @@ def _apply_sound(params: dict[str, str], filters: SoundFilters) -> None:
 
 
 def _apply_span(params: dict[str, str], filters: RangeFilters) -> None:
+    """Add the featured flag and duration window to the parameters.
+
+    Args:
+        params: Query parameters, modified in place.
+        filters: Range filters to apply.
+    """
     if filters.featured:
         params["featured"] = FEATURED_FLAG
     duration = _duration_between(filters.duration_min, filters.duration_max)
@@ -335,6 +506,13 @@ def _apply_span(params: dict[str, str], filters: RangeFilters) -> None:
 
 
 def _assign(params: dict[str, str], key: str, value: str | None) -> None:
+    """Set a parameter when the value has non-blank text.
+
+    Args:
+        params: Query parameters, modified in place.
+        key: Parameter name.
+        value: Text to store after stripping whitespace, or None to skip.
+    """
     if value is None:
         return
     stripped = value.strip()
@@ -343,12 +521,28 @@ def _assign(params: dict[str, str], key: str, value: str | None) -> None:
 
 
 def _assign_joined(params: dict[str, str], key: str, values: tuple[str, ...]) -> None:
+    """Set a parameter to the cleaned values joined with plus signs.
+
+    Args:
+        params: Query parameters, modified in place.
+        key: Parameter name.
+        values: Values to lowercase, strip, and join; blank ones are dropped.
+    """
     cleaned = tuple(item.strip().lower() for item in values if item.strip())
     if cleaned:
         params[key] = "+".join(cleaned)
 
 
 def _duration_between(minimum: int | None, maximum: int | None) -> str | None:
+    """Format the duration window for the API.
+
+    Args:
+        minimum: Lower bound in seconds, or None.
+        maximum: Upper bound in seconds, or None.
+
+    Returns:
+        A ``min_max`` string, or None when both bounds are missing.
+    """
     if minimum is None and maximum is None:
         return None
     start = MIN_DURATION_SECONDS if minimum is None else minimum
@@ -357,6 +551,14 @@ def _duration_between(minimum: int | None, maximum: int | None) -> str | None:
 
 
 def _language(value: str | None) -> str | None:
+    """Normalize a language code.
+
+    Args:
+        value: Raw language code, or None.
+
+    Returns:
+        The stripped lowercase code, or None when it is missing or blank.
+    """
     if value is None:
         return None
     stripped = value.strip().lower()
@@ -366,12 +568,28 @@ def _language(value: str | None) -> str | None:
 
 
 def _validate(query: TrackQuery) -> None:
+    """Check that a query only uses supported values.
+
+    Args:
+        query: Query to check.
+
+    Raises:
+        JamendoError: If any part of the query is invalid.
+    """
     message = _validation_error(query)
     if message is not None:
         raise JamendoError(message)
 
 
 def _validation_error(query: TrackQuery) -> str | None:
+    """Find the first problem in a query.
+
+    Args:
+        query: Query to check.
+
+    Returns:
+        An error message, or None when the query is valid.
+    """
     page = query.page
     language = _language(query.text.language)
     checks = (
@@ -394,23 +612,65 @@ def _validation_error(query: TrackQuery) -> str | None:
 
 
 def _page_ok(page: PageRequest) -> bool:
+    """Check the page size and offset.
+
+    Args:
+        page: Result window to check.
+
+    Returns:
+        True when the limit is within bounds and the offset is not negative.
+    """
     limit_ok = MIN_PAGE_SIZE <= page.limit <= MAX_PAGE_SIZE
     return limit_ok and page.offset >= MIN_OFFSET
 
 
 def _known(value: str | None, allowed: frozenset[str]) -> bool:
+    """Check that an optional value is one of the allowed ones.
+
+    Args:
+        value: Value to check, or None.
+        allowed: Accepted values.
+
+    Returns:
+        True when the value is None or allowed.
+    """
     return value is None or value in allowed
 
 
 def _all_known(values: tuple[str, ...], allowed: frozenset[str]) -> bool:
+    """Check that every value is one of the allowed ones.
+
+    Args:
+        values: Values to check.
+        allowed: Accepted values.
+
+    Returns:
+        True when all values are allowed.
+    """
     return all(item in allowed for item in values)
 
 
 def _tags_ok(tags: tuple[str, ...]) -> bool:
+    """Check that every tag is valid.
+
+    Args:
+        tags: Tags to check.
+
+    Returns:
+        True when all tags are valid.
+    """
     return all(_tag_ok(tag) for tag in tags)
 
 
 def _tag_ok(tag: str) -> bool:
+    """Check that a tag is non-blank and has no separator characters.
+
+    Args:
+        tag: Tag to check.
+
+    Returns:
+        True when the tag is valid.
+    """
     stripped = tag.strip()
     if not stripped:
         return False
@@ -418,12 +678,29 @@ def _tag_ok(tag: str) -> bool:
 
 
 def _language_ok(value: str | None) -> bool:
+    """Check that a language code is two ASCII letters.
+
+    Args:
+        value: Normalized language code, or None.
+
+    Returns:
+        True when the code is missing or well formed.
+    """
     if value is None:
         return True
     return len(value) == LANGUAGE_CODE_LENGTH and value.isalpha() and value.isascii()
 
 
 def _duration_ok(minimum: int | None, maximum: int | None) -> bool:
+    """Check that the duration window is valid.
+
+    Args:
+        minimum: Lower bound in seconds, or None.
+        maximum: Upper bound in seconds, or None.
+
+    Returns:
+        True when both bounds are in range and the minimum does not exceed the maximum.
+    """
     if minimum is not None and minimum < MIN_DURATION_SECONDS:
         return False
     if maximum is not None and (maximum < MIN_DURATION_SECONDS or maximum > MAX_DURATION_SECONDS):
@@ -432,6 +709,17 @@ def _duration_ok(minimum: int | None, maximum: int | None) -> bool:
 
 
 def _decode(body: bytes) -> dict[str, object]:
+    """Parse a response body as a JSON object.
+
+    Args:
+        body: Raw response body.
+
+    Returns:
+        The decoded JSON object.
+
+    Raises:
+        JamendoError: If the body is not valid JSON or not an object.
+    """
     try:
         payload = json.loads(body)
     except json.JSONDecodeError as exc:
@@ -440,6 +728,16 @@ def _decode(body: bytes) -> dict[str, object]:
 
 
 def _parse_page(payload: dict[str, object], *, offset: int, limit: int) -> TrackPage:
+    """Turn an API response into a page of tracks.
+
+    Args:
+        payload: Decoded API response.
+        offset: Offset of the request.
+        limit: Page size of the request.
+
+    Returns:
+        The page of usable tracks.
+    """
     headers = _as_dict(payload.get("headers"))
     _raise_for_status(headers)
     tracks = _parse_tracks(_as_list(payload.get("results")))
@@ -452,17 +750,42 @@ def _parse_page(payload: dict[str, object], *, offset: int, limit: int) -> Track
 
 
 def _raise_for_status(headers: Mapping[str, object]) -> None:
+    """Raise when the API reports a failure.
+
+    Args:
+        headers: The ``headers`` object of the API response.
+
+    Raises:
+        JamendoError: If the status is not a success.
+    """
     if headers.get("status") == SUCCESS_STATUS:
         return
     raise JamendoError(_error_message(headers))
 
 
 def _error_message(headers: Mapping[str, object]) -> str:
+    """Pick the error message to show for a failed response.
+
+    Args:
+        headers: The ``headers`` object of the API response.
+
+    Returns:
+        The API's message, or a generic one when it has none.
+    """
     message = _string(headers.get("error_message"))
     return message or REQUEST_FAILED
 
 
 def _total(headers: Mapping[str, object], fallback: int) -> int:
+    """Read the total result count.
+
+    Args:
+        headers: The ``headers`` object of the API response.
+        fallback: Value to use when the count is missing or invalid.
+
+    Returns:
+        The number of tracks matching the whole search.
+    """
     parsed = _whole_number(headers.get("results_fullcount"))
     if parsed is None or parsed < MIN_OFFSET:
         return fallback
@@ -470,6 +793,14 @@ def _total(headers: Mapping[str, object], fallback: int) -> int:
 
 
 def _parse_tracks(results: list[object]) -> tuple[Track, ...]:
+    """Parse result items, skipping the ones that are not usable tracks.
+
+    Args:
+        results: Raw result items.
+
+    Returns:
+        The usable tracks.
+    """
     tracks: list[Track] = []
     for item in results:
         track = _try_parse_track(item)
@@ -479,6 +810,14 @@ def _parse_tracks(results: list[object]) -> tuple[Track, ...]:
 
 
 def _try_parse_track(item: object) -> Track | None:
+    """Parse one result item.
+
+    Args:
+        item: Raw result item.
+
+    Returns:
+        The track, or None when required fields are missing.
+    """
     raw = _dict_or_none(item)
     if raw is None:
         return None
@@ -497,6 +836,18 @@ def _track_from(
     artist_name: str,
     audio_url: str,
 ) -> Track:
+    """Build a track from validated required fields and optional raw ones.
+
+    Args:
+        raw: Raw result item.
+        track_id: Jamendo track id.
+        name: Track title.
+        artist_name: Name of the artist.
+        audio_url: Streaming URL.
+
+    Returns:
+        The track.
+    """
     duration = _whole_number(raw.get("duration"))
     return Track(
         id=track_id,
@@ -514,6 +865,14 @@ def _track_from(
 
 
 def _identity(raw: Mapping[str, object]) -> tuple[str, str, str] | None:
+    """Read the required id, title, and artist of a result item.
+
+    Args:
+        raw: Raw result item.
+
+    Returns:
+        The id, title, and artist, or None when any is missing.
+    """
     track_id = _string(raw.get("id"))
     name = _string(raw.get("name"))
     artist_name = _string(raw.get("artist_name"))
@@ -523,6 +882,14 @@ def _identity(raw: Mapping[str, object]) -> tuple[str, str, str] | None:
 
 
 def _genres(raw: Mapping[str, object]) -> tuple[str, ...]:
+    """Read the genre tags of a result item.
+
+    Args:
+        raw: Raw result item.
+
+    Returns:
+        The non-blank genre names.
+    """
     info = _dict_or_none(raw.get("musicinfo"))
     tags = None if info is None else _dict_or_none(info.get("tags"))
     genres = None if tags is None else tags.get("genres")
@@ -532,6 +899,14 @@ def _genres(raw: Mapping[str, object]) -> tuple[str, ...]:
 
 
 def _jamendo_url(value: object) -> str | None:
+    """Read a URL that must be on Jamendo.
+
+    Args:
+        value: Raw value.
+
+    Returns:
+        The URL, or None when it is missing or not on Jamendo.
+    """
     url = _string(value)
     if url is None or not is_jamendo_media_url(url):
         return None
@@ -539,10 +914,26 @@ def _jamendo_url(value: object) -> str | None:
 
 
 def _optional_text(value: object) -> str:
+    """Read optional text.
+
+    Args:
+        value: Raw value.
+
+    Returns:
+        The text, or an empty string when it is missing.
+    """
     return _string(value) or ""
 
 
 def _flag(value: object) -> bool:
+    """Read a boolean flag that may be sent as text.
+
+    Args:
+        value: Raw value.
+
+    Returns:
+        True for ``True`` or the text "true", otherwise False.
+    """
     if isinstance(value, bool):
         return value
     if isinstance(value, str):
@@ -551,6 +942,14 @@ def _flag(value: object) -> bool:
 
 
 def _string(value: object) -> str | None:
+    """Read a non-blank string, accepting integers.
+
+    Args:
+        value: Raw value.
+
+    Returns:
+        The stripped text, or None when the value is blank or not text or a number.
+    """
     if isinstance(value, str):
         stripped = value.strip()
         return stripped or None
@@ -560,6 +959,14 @@ def _string(value: object) -> str | None:
 
 
 def _whole_number(value: object) -> int | None:
+    """Read a whole number that may be sent as text.
+
+    Args:
+        value: Raw value.
+
+    Returns:
+        The number, or None when the value is not one.
+    """
     if isinstance(value, bool) or value is None:
         return None
     if isinstance(value, int):
@@ -570,6 +977,17 @@ def _whole_number(value: object) -> int | None:
 
 
 def _as_dict(value: object) -> dict[str, object]:
+    """Require a JSON object.
+
+    Args:
+        value: Raw value.
+
+    Returns:
+        The object with string keys.
+
+    Raises:
+        JamendoError: If the value is not an object.
+    """
     parsed = _dict_or_none(value)
     if parsed is None:
         raise JamendoError(INVALID_RESPONSE)
@@ -577,6 +995,14 @@ def _as_dict(value: object) -> dict[str, object]:
 
 
 def _dict_or_none(value: object) -> dict[str, object] | None:
+    """Read a JSON object.
+
+    Args:
+        value: Raw value.
+
+    Returns:
+        The object keeping only string keys, or None when the value is not an object.
+    """
     if not isinstance(value, dict):
         return None
     parsed: dict[str, object] = {}
@@ -587,12 +1013,34 @@ def _dict_or_none(value: object) -> dict[str, object] | None:
 
 
 def _as_list(value: object) -> list[object]:
+    """Require a JSON array.
+
+    Args:
+        value: Raw value.
+
+    Returns:
+        The items of the array.
+
+    Raises:
+        JamendoError: If the value is not an array.
+    """
     if not isinstance(value, list):
         raise JamendoError(INVALID_RESPONSE)
     return [cast("object", item) for item in value]
 
 
 def _audio_details(audio_format: str) -> tuple[str, str]:
+    """Look up the extension and MIME type of an audio format.
+
+    Args:
+        audio_format: Jamendo audio format code.
+
+    Returns:
+        The file extension and MIME type.
+
+    Raises:
+        JamendoError: If the format is not supported.
+    """
     try:
         return AUDIO_FORMAT_DETAILS[audio_format]
     except KeyError as exc:
@@ -600,6 +1048,14 @@ def _audio_details(audio_format: str) -> tuple[str, str]:
 
 
 def _filename_stem(track: Track) -> str:
+    """Build the file name without extension for a track.
+
+    Args:
+        track: Track being downloaded.
+
+    Returns:
+        A sanitized artist and title, falling back to the id or a default name.
+    """
     parts = [part for part in (track.artist_name, track.name) if part.strip()]
     stem = _sanitize_filename(" - ".join(parts))
     if stem:
@@ -609,6 +1065,14 @@ def _filename_stem(track: Track) -> str:
 
 
 def _sanitize_filename(value: str) -> str:
+    """Replace unsafe characters and shorten a file name.
+
+    Args:
+        value: Raw file name stem.
+
+    Returns:
+        A name that is safe to use on common file systems.
+    """
     cleaned = "".join(
         character if _filename_character_ok(character) else "_" for character in value
     )
@@ -616,4 +1080,12 @@ def _sanitize_filename(value: str) -> str:
 
 
 def _filename_character_ok(character: str) -> bool:
+    """Check that a character is safe in a file name.
+
+    Args:
+        character: Single character.
+
+    Returns:
+        True when the character is printable and not on the unsafe list.
+    """
     return character.isprintable() and character not in UNSAFE_FILENAME_CHARACTERS
