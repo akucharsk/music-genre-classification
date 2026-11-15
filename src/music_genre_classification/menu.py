@@ -41,7 +41,9 @@ ACTIONS = (
     Action("docstrings", "Check docstrings"),
     Action("check", "Run all checks (as CI does)"),
     Action("preprocess", "Extract MFCC features from GTZAN"),
-    Action("train", "Train the baseline model"),
+    Action("train-svm", "Train the SVM classifier"),
+    Action("train-cnn", "Train the CNN classifier"),
+    Action("train-transformer", "Train the Transformer classifier"),
     Action("install", "Install dependencies and git hooks"),
 )
 

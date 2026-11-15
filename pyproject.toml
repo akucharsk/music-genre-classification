@@ -15,6 +15,7 @@ dependencies = [
     "numpy>=2.5.4",
     "rich>=15.0.0",
     "streamlit>=1.66.0",
+    "torch>=2.15.0",
 ]
 
 [project.scripts]
@@ -116,3 +117,12 @@ ignore-semiprivate = false
 ignore-magic = false
 exclude = ["tests"]
 verbose = 1
+
+# CI runs on Linux, where PyPI's default torch wheel bundles CUDA; use the much smaller CPU build.
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]

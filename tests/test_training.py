@@ -1,105 +1,139 @@
 # Copyright (C) 2026 Bartłomiej Kózka
-"""Tests for baseline training."""
+"""Tests for the classifiers, evaluation and the training command."""
 
 from __future__ import annotations
 
-import json
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
-import joblib
 import numpy as np
 import pytest
 
-from music_genre_classification.data_preprocessing import DatasetError
-from music_genre_classification.training import (
-    Dataset,
-    TrainResult,
-    load_dataset,
-    save_model,
-    split_dataset,
-    summarize,
-    train_baseline,
-)
+from music_genre_classification.classifiers.cnn import CnnClassifier
+from music_genre_classification.classifiers.registry import CLASSIFIERS
+from music_genre_classification.classifiers.svm import SvmClassifier
+from music_genre_classification.classifiers.torch_base import TorchClassifier
+from music_genre_classification.classifiers.transformer import TransformerClassifier
+from music_genre_classification.dataset import split_dataset
+from music_genre_classification.evaluation import evaluate
+from music_genre_classification.training import main, model_path, train
+from tests.test_dataset import synthetic_dataset, write_json
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-TRACKS_PER_GENRE = 10
-SEGMENTS_PER_TRACK = 3
+    from music_genre_classification.classifiers.base import GenreClassifier
+
+EPOCHS = 2
 
 
-def _synthetic_dataset() -> Dataset:
-    """Build two genres whose MFCC means are far apart.
-
-    Returns:
-        A synthetic, easily separable dataset.
-    """
-    rng = np.random.default_rng(0)
-    labels = np.repeat([0, 1], TRACKS_PER_GENRE * SEGMENTS_PER_TRACK)
-    tracks = np.repeat(np.arange(2 * TRACKS_PER_GENRE), SEGMENTS_PER_TRACK)
-    features = rng.normal(loc=labels[:, None, None] * 5.0, scale=1.0, size=(len(labels), 8, 4))
-    return Dataset(genres=("a", "b"), features=features, labels=labels, tracks=tracks)
+def _classifier(name: str) -> GenreClassifier:
+    cls = CLASSIFIERS[name]
+    if issubclass(cls, TorchClassifier):
+        return cls(replace(cls.default_config, epochs=EPOCHS))
+    return cls()
 
 
-def _write_json(path: Path, dataset: Dataset) -> None:
-    payload = {
-        "genres": list(dataset.genres),
-        "labels": dataset.labels.tolist(),
-        "tracks": dataset.tracks.tolist(),
-        "mfcc": dataset.features.tolist(),
-    }
-    path.write_text(json.dumps(payload), encoding="utf-8")
+def test_registry_lists_all_classifiers() -> None:
+    """The registry exposes the three models under their names."""
+    assert set(CLASSIFIERS) == {"svm", "cnn", "transformer"}
+    assert CLASSIFIERS["svm"] is SvmClassifier
+    assert CLASSIFIERS["cnn"] is CnnClassifier
+    assert CLASSIFIERS["transformer"] is TransformerClassifier
 
 
-def test_load_dataset_round_trips(tmp_path: Path) -> None:
-    """A written dataset is loaded back with the same shapes."""
-    path = tmp_path / "data.json"
-    original = _synthetic_dataset()
-    _write_json(path, original)
+@pytest.mark.parametrize("name", ["svm", "cnn", "transformer"])
+def test_classifier_predicts_probabilities_and_survives_saving(name: str, tmp_path: Path) -> None:
+    """Trained models output valid probabilities and give the same answers after reloading."""
+    split = split_dataset(synthetic_dataset())
+    classifier = _classifier(name)
+    classifier.fit(split)
 
-    loaded = load_dataset(path)
+    probabilities = classifier.predict_proba(split.validation.features)
+    path = tmp_path / "nested" / f"{name}.bin"
+    classifier.save(path)
+    restored = type(classifier).load(path)
 
-    assert loaded.genres == ("a", "b")
-    assert loaded.features.shape == original.features.shape
-    assert np.array_equal(loaded.labels, original.labels)
-
-
-@pytest.mark.parametrize("content", ["not json", "[]", '{"genres": []}'])
-def test_load_dataset_rejects_malformed_files(tmp_path: Path, content: str) -> None:
-    """Invalid or incomplete JSON raises DatasetError."""
-    path = tmp_path / "data.json"
-    path.write_text(content, encoding="utf-8")
-
-    with pytest.raises(DatasetError):
-        load_dataset(path)
+    assert probabilities.shape == (len(split.validation.labels), 2)
+    assert np.allclose(probabilities.sum(axis=1), 1.0, atol=1e-5)
+    assert np.allclose(restored.predict_proba(split.validation.features), probabilities, atol=1e-5)
 
 
-def test_load_dataset_rejects_missing_file(tmp_path: Path) -> None:
-    """A missing file raises DatasetError."""
-    with pytest.raises(DatasetError, match="Could not read"):
-        load_dataset(tmp_path / "missing.json")
+def test_svm_separates_the_genres() -> None:
+    """The SVM reaches high accuracy on well-separated genres."""
+    split = split_dataset(synthetic_dataset())
+    classifier = SvmClassifier()
+    classifier.fit(split)
+
+    assert evaluate(classifier, split.validation).accuracy > 0.9
 
 
-def test_summarize_reduces_time_axis() -> None:
-    """Each segment becomes its means followed by its standard deviations."""
-    assert summarize(_synthetic_dataset().features).shape == (60, 8)
+@pytest.mark.parametrize("cls", [CnnClassifier, TransformerClassifier])
+def test_neural_networks_record_history(cls: type[TorchClassifier]) -> None:
+    """Training records one entry per epoch for loss and accuracy."""
+    classifier = cls(replace(cls.default_config, epochs=EPOCHS))
+    classifier.fit(split_dataset(synthetic_dataset()))
+
+    assert len(classifier.history.train_loss) == EPOCHS
+    assert len(classifier.history.val_acc) == EPOCHS
+    assert all(0.0 <= value <= 1.0 for value in classifier.history.val_acc)
 
 
-def test_split_keeps_tracks_apart() -> None:
-    """No track appears in both train and validation."""
-    split = split_dataset(_synthetic_dataset())
+@pytest.mark.parametrize("cls", [SvmClassifier, CnnClassifier])
+def test_untrained_classifier_cannot_predict_or_save(
+    cls: type[GenreClassifier], tmp_path: Path
+) -> None:
+    """Using a classifier before fitting raises a clear error."""
+    classifier = cls()
+    features = synthetic_dataset().features
 
-    assert not set(split.train.tracks) & set(split.validation.tracks)
-    assert len(split.train.labels) + len(split.validation.labels) == 60
+    with pytest.raises(RuntimeError, match="not trained"):
+        classifier.predict_proba(features)
+    if cls is CnnClassifier:
+        with pytest.raises(RuntimeError, match="not trained"):
+            classifier.save(tmp_path / "model.pt")
 
 
-def test_baseline_learns_separable_genres(tmp_path: Path) -> None:
-    """The baseline separates two well-separated genres and can be saved and reloaded."""
-    result = train_baseline(split_dataset(_synthetic_dataset()))
+def test_evaluate_reports_accuracy_and_confusion() -> None:
+    """Evaluation has an accuracy, a per-genre report and a square confusion matrix."""
+    split = split_dataset(synthetic_dataset())
+    classifier = SvmClassifier()
+    classifier.fit(split)
+
+    result = evaluate(classifier, split.validation)
+
+    assert 0.0 <= result.accuracy <= 1.0
+    assert "precision" in result.report
+    assert result.confusion.shape == (2, 2)
+    assert result.confusion.sum() == len(split.validation.labels)
+
+
+def test_train_saves_the_model(tmp_path: Path) -> None:
+    """Training from a data file evaluates the model and writes it to the model directory."""
+    data = tmp_path / "data.json"
+    write_json(data, synthetic_dataset())
+
+    result = train("svm", data, tmp_path / "models")
 
     assert result.accuracy > 0.9
-    path = tmp_path / "models" / "baseline.joblib"
-    save_model(result, ("a", "b"), path)
-    saved = joblib.load(path)
-    assert saved["genres"] == ("a", "b")
-    assert isinstance(result, TrainResult)
+    assert model_path("svm", tmp_path / "models").exists()
+
+
+def test_main_trains_a_neural_network_with_epoch_override(tmp_path: Path) -> None:
+    """The command line trains the chosen model and saves it."""
+    data = tmp_path / "data.json"
+    write_json(data, synthetic_dataset())
+    models = tmp_path / "models"
+
+    main([
+        "--model",
+        "transformer",
+        "--data",
+        str(data),
+        "--model-dir",
+        str(models),
+        "--epochs",
+        "1",
+    ])
+
+    assert model_path("transformer", models).exists()

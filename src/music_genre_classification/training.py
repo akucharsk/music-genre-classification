@@ -1,190 +1,102 @@
 # Copyright (C) 2026 Bartłomiej Kózka
-"""Train a baseline genre classifier on the MFCC dataset."""
+"""Train a genre classifier from the command line."""
 
 from __future__ import annotations
 
-import json
+import argparse
 import logging
-from dataclasses import dataclass
+from dataclasses import replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
-import joblib
-import numpy as np
-from sklearn.model_selection import GroupShuffleSplit
-from sklearn.pipeline import Pipeline, make_pipeline
-from sklearn.preprocessing import StandardScaler
-from sklearn.svm import SVC
-
-from music_genre_classification.data_preprocessing import DEFAULT_OUTPUT_PATH, DatasetError
+from music_genre_classification.classifiers.registry import CLASSIFIERS
+from music_genre_classification.classifiers.torch_base import TorchClassifier
+from music_genre_classification.data_preprocessing import DEFAULT_OUTPUT_PATH
+from music_genre_classification.dataset import load_dataset, split_dataset
+from music_genre_classification.evaluation import Evaluation, evaluate
 
 if TYPE_CHECKING:
-    from numpy.typing import NDArray
+    from collections.abc import Sequence
+
+    from music_genre_classification.classifiers.base import GenreClassifier
 
 LOGGER = logging.getLogger(__name__)
 
-DEFAULT_MODEL_PATH = Path("models/baseline.joblib")
-REQUIRED_KEYS = ("genres", "labels", "tracks", "mfcc")
-VALIDATION_FRACTION = 0.2
-RANDOM_SEED = 42
+DEFAULT_MODEL_DIR = Path("models")
+MODEL_SUFFIXES = {"svm": ".joblib", "cnn": ".pt", "transformer": ".pt"}
 
 
-@dataclass(frozen=True, slots=True)
-class Dataset:
-    """MFCC dataset loaded from JSON.
-
-    Attributes:
-        genres: Genre names; a label is an index into this tuple.
-        features: MFCC array of shape (segments, frames, coefficients).
-        labels: Genre index of every segment.
-        tracks: Source track index of every segment.
-    """
-
-    genres: tuple[str, ...]
-    features: NDArray[np.float64]
-    labels: NDArray[np.int64]
-    tracks: NDArray[np.int64]
-
-
-@dataclass(frozen=True, slots=True)
-class Split:
-    """Train and validation parts of a dataset.
-
-    Attributes:
-        train: Segments used to fit the model.
-        validation: Segments held out to measure accuracy.
-    """
-
-    train: Dataset
-    validation: Dataset
-
-
-@dataclass(frozen=True, slots=True)
-class TrainResult:
-    """A trained model together with its validation accuracy.
-
-    Attributes:
-        model: The fitted scikit-learn pipeline.
-        accuracy: Fraction of validation segments classified correctly.
-    """
-
-    model: Pipeline
-    accuracy: float
-
-
-def load_dataset(path: Path) -> Dataset:
-    """Load the dataset written by the preprocessing step.
+def model_path(name: str, directory: Path = DEFAULT_MODEL_DIR) -> Path:
+    """Return where a trained model of the given kind is stored.
 
     Args:
-        path: JSON file produced by ``data_preprocessing``.
+        name: Classifier name, one of ``CLASSIFIERS``.
+        directory: Directory holding trained models.
 
     Returns:
-        The parsed dataset.
-
-    Raises:
-        DatasetError: If the file is missing, malformed or empty.
+        Path of the model file.
     """
-    try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
-        msg = f"Could not read dataset: {path}"
-        raise DatasetError(msg) from error
-    if not isinstance(raw, dict) or any(key not in raw for key in REQUIRED_KEYS):
-        msg = f"Dataset must contain: {', '.join(REQUIRED_KEYS)}"
-        raise DatasetError(msg)
-    labels = np.asarray(raw["labels"], dtype=np.int64)
-    if len(labels) == 0 or not len(labels) == len(raw["mfcc"]) == len(raw["tracks"]):
-        msg = "Dataset is empty or its columns differ in length."
-        raise DatasetError(msg)
-    return Dataset(
-        genres=tuple(raw["genres"]),
-        features=np.asarray(raw["mfcc"], dtype=np.float64),
-        labels=labels,
-        tracks=np.asarray(raw["tracks"], dtype=np.int64),
-    )
+    return directory / f"{name}{MODEL_SUFFIXES[name]}"
 
 
-def summarize(features: NDArray[np.float64]) -> NDArray[np.float64]:
-    """Describe each segment by the mean and standard deviation of every MFCC over time.
+def train(
+    name: str,
+    data_path: Path,
+    model_dir: Path,
+    epochs: int | None = None,
+) -> Evaluation:
+    """Train one classifier, evaluate it on the validation split and save it.
 
     Args:
-        features: Array of shape (segments, frames, coefficients).
+        name: Classifier name, one of ``CLASSIFIERS``.
+        data_path: JSON file produced by the preprocessing step.
+        model_dir: Directory to save the trained model in.
+        epochs: Number of epochs for neural networks; the classifier's default when omitted.
 
     Returns:
-        Array of shape (segments, 2 * coefficients).
+        Validation-set evaluation of the trained classifier.
     """
-    return np.concatenate([features.mean(axis=1), features.std(axis=1)], axis=1)
+    dataset = load_dataset(data_path)
+    split = split_dataset(dataset)
+    classifier = _create(name, epochs)
+    classifier.fit(split)
+    evaluation = evaluate(classifier, split.validation)
+    classifier.save(model_path(name, model_dir))
+    return evaluation
 
 
-def split_dataset(dataset: Dataset, *, seed: int = RANDOM_SEED) -> Split:
-    """Split into train and validation sets without sharing a track between them.
+def main(argv: Sequence[str] | None = None) -> None:
+    """Train the chosen classifier on the default dataset and print its quality.
 
     Args:
-        dataset: Dataset to split.
-        seed: Random seed for a reproducible split.
-
-    Returns:
-        The train and validation datasets.
+        argv: Command-line arguments; ``sys.argv`` when omitted.
     """
-    splitter = GroupShuffleSplit(n_splits=1, test_size=VALIDATION_FRACTION, random_state=seed)
-    train_index, validation_index = next(splitter.split(dataset.features, groups=dataset.tracks))
-    return Split(train=_subset(dataset, train_index), validation=_subset(dataset, validation_index))
-
-
-def train_baseline(split: Split) -> TrainResult:
-    """Fit a scaled RBF support-vector classifier on summarized MFCCs.
-
-    Args:
-        split: Train and validation datasets.
-
-    Returns:
-        The fitted pipeline and its accuracy on the validation set.
-    """
-    model = make_pipeline(StandardScaler(), SVC())
-    model.fit(summarize(split.train.features), split.train.labels)
-    accuracy = model.score(summarize(split.validation.features), split.validation.labels)
-    return TrainResult(model=model, accuracy=float(accuracy))
-
-
-def save_model(result: TrainResult, genres: tuple[str, ...], path: Path) -> None:
-    """Persist the model and its genre names, creating parent directories when needed.
-
-    Args:
-        result: Trained model.
-        genres: Genre names matching the model's labels.
-        path: Destination file.
-    """
-    path.parent.mkdir(parents=True, exist_ok=True)
-    payload: dict[str, Any] = {"model": result.model, "genres": genres}
-    joblib.dump(payload, path)
-
-
-def main() -> None:
-    """Train the baseline on the default dataset and save it."""
+    parser = argparse.ArgumentParser(description="Train a genre classifier.")
+    parser.add_argument("--model", choices=sorted(CLASSIFIERS), default="svm")
+    parser.add_argument("--data", type=Path, default=DEFAULT_OUTPUT_PATH)
+    parser.add_argument("--model-dir", type=Path, default=DEFAULT_MODEL_DIR)
+    parser.add_argument("--epochs", type=int, help="epochs for neural networks")
+    args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
-    dataset = load_dataset(DEFAULT_OUTPUT_PATH)
-    result = train_baseline(split_dataset(dataset))
-    LOGGER.info("Validation accuracy: %.3f", result.accuracy)
-    save_model(result, dataset.genres, DEFAULT_MODEL_PATH)
-    LOGGER.info("Saved model to %s", DEFAULT_MODEL_PATH)
+    evaluation = train(args.model, args.data, args.model_dir, args.epochs)
+    LOGGER.info("Validation accuracy: %.3f\n%s", evaluation.accuracy, evaluation.report)
+    LOGGER.info("Saved model to %s", model_path(args.model, args.model_dir))
 
 
-def _subset(dataset: Dataset, index: NDArray[np.intp]) -> Dataset:
-    """Select segments of a dataset by index.
+def _create(name: str, epochs: int | None) -> GenreClassifier:
+    """Instantiate a classifier, overriding the epoch count when requested.
 
     Args:
-        dataset: Dataset to select from.
-        index: Positions of the segments to keep.
+        name: Classifier name, one of ``CLASSIFIERS``.
+        epochs: Number of epochs for neural networks, or None for the default.
 
     Returns:
-        A dataset containing only the selected segments.
+        The untrained classifier.
     """
-    return Dataset(
-        genres=dataset.genres,
-        features=dataset.features[index],
-        labels=dataset.labels[index],
-        tracks=dataset.tracks[index],
-    )
+    cls = CLASSIFIERS[name]
+    if epochs is not None and issubclass(cls, TorchClassifier):
+        return cls(replace(cls.default_config, epochs=epochs))
+    return cls()
 
 
 if __name__ == "__main__":

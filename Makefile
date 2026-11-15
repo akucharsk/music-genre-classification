@@ -3,7 +3,7 @@ UV := uv run
 SOURCES := src tests
 
 .DEFAULT_GOAL := menu
-.PHONY: menu help install run test lint format format-check typecheck docstrings check preprocess train
+.PHONY: menu help install run test lint format format-check typecheck docstrings check preprocess train-svm train-cnn train-transformer
 
 menu: ## Open the interactive menu
 	@$(UV) python -m music_genre_classification.menu
@@ -42,5 +42,11 @@ check: format-check lint typecheck docstrings test ## Run everything CI runs
 preprocess: ## Extract MFCC features from the GTZAN dataset
 	$(UV) python -m music_genre_classification.data_preprocessing
 
-train: ## Train the baseline model
-	$(UV) python -m music_genre_classification.training
+train-svm: ## Train the SVM classifier
+	$(UV) python -m music_genre_classification.training --model svm
+
+train-cnn: ## Train the CNN classifier
+	$(UV) python -m music_genre_classification.training --model cnn
+
+train-transformer: ## Train the Transformer classifier
+	$(UV) python -m music_genre_classification.training --model transformer

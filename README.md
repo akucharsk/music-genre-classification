@@ -62,6 +62,22 @@ Each 30 s track is split into 10 segments and converted to 13 MFCC coefficients 
 is written to `data/data.json` (git-ignored). Unreadable files (GTZAN has one corrupt jazz track) are
 skipped with a warning.
 
+## Training
+
+After preprocessing, train one of the classifiers on `data/data.json`. The validation accuracy and a
+per-genre report are printed and the model is saved to `models/` (git-ignored):
+
+```sh
+make train-svm           # SVM on PCA-reduced MFCCs
+make train-cnn           # convolutional network
+make train-transformer   # Transformer encoder
+uv run python -m music_genre_classification.training --model cnn --epochs 50   # custom epochs
+```
+
+The split into train and validation sets never puts segments of one track into both parts.
+All classifiers implement `GenreClassifier` (`fit`, `predict_proba`, `save`, `load`) in
+`src/music_genre_classification/classifiers/`.
+
 ## Makefile
 
 `make` is the single entry point. Without arguments it opens an interactive menu: type the number of
