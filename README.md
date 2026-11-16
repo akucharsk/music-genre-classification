@@ -12,8 +12,8 @@ country, disco, hiphop, jazz, metal, pop, reggae, rock). The raw data is not sto
 ## Milestones
 
 - [x] 1. Dataset selection and repository setup (uv, ruff, mypy strict, pytest, pre-commit, CI, Dependabot)
-- [ ] 2. Preprocessing
-- [ ] 3. Model training
+- [x] 2. Preprocessing
+- [x] 3. Model training
 - [ ] 4. App prototype
 - [ ] 5. Deployment
 
