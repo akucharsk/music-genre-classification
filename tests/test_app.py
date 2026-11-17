@@ -8,14 +8,15 @@ import wave
 from pathlib import Path
 from typing import TYPE_CHECKING, ClassVar, Protocol, Self
 
+import numpy as np
+import pytest
 from streamlit.testing.v1 import AppTest
 
+from music_genre_classification.classifiers import registry
 from music_genre_classification.jamendo import Track, TrackPage, TrackQuery
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
-
-    import pytest
 
 APP_PATH = Path(__file__).parents[1] / "src" / "music_genre_classification" / "app.py"
 AUDIO_URL = "https://prod-1.storage.jamendo.com/?trackid=1&format=mp32"
@@ -40,8 +41,17 @@ def test_app_accepts_an_audio_file() -> None:
     assert at.caption[0].value == "clip.wav"
 
 
-def test_analyze_shows_mfcc_for_an_uploaded_file() -> None:
-    """Analyzing a valid upload reports the extracted segments."""
+@pytest.fixture
+def fake_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Register a trained model that always predicts jazz."""
+    monkeypatch.setitem(registry.CLASSIFIERS, "fake", _FakeClassifier)
+    monkeypatch.setitem(registry.MODEL_SUFFIXES, "fake", ".bin")
+    monkeypatch.setattr(registry, "available_models", lambda *_args: ["fake"])
+
+
+@pytest.mark.usefixtures("fake_model")
+def test_analyze_classifies_an_uploaded_file() -> None:
+    """Analyzing a valid upload shows the predicted genre and the segment count."""
     at = AppTest.from_file(str(APP_PATH)).run()
     at.file_uploader[0].set_value(("clip.wav", _wav_bytes(seconds=7), "audio/wav"))
     at.run()
@@ -49,9 +59,12 @@ def test_analyze_shows_mfcc_for_an_uploaded_file() -> None:
 
     assert not at.exception
     assert not at.error
+    assert at.metric[0].label == "Predicted genre"
+    assert at.metric[0].value == "Jazz"
     assert any("2 segments" in item.value for item in at.caption)
 
 
+@pytest.mark.usefixtures("fake_model")
 def test_analyze_reports_undecodable_uploads() -> None:
     """Analyzing a broken upload shows an error instead of crashing."""
     at = AppTest.from_file(str(APP_PATH)).run()
@@ -61,6 +74,19 @@ def test_analyze_reports_undecodable_uploads() -> None:
 
     assert not at.exception
     assert at.error[0].value == "Could not read this audio file."
+
+
+def test_analyze_warns_when_no_model_is_trained(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Without trained models the app explains how to get one."""
+    monkeypatch.setattr(registry, "available_models", lambda *_args: [])
+    at = AppTest.from_file(str(APP_PATH)).run()
+    at.file_uploader[0].set_value(("clip.wav", _wav_bytes(seconds=7), "audio/wav"))
+    at.run()
+    _clickable(at.button, "Analyze").click().run()
+
+    assert not at.exception
+    assert any("make train-svm" in item.value for item in at.sidebar.warning)
+    assert any("make train-svm" in item.value for item in at.warning)
 
 
 def test_jamendo_explains_a_missing_client_id(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -104,6 +130,50 @@ def _wav_bytes(*, seconds: int) -> bytes:
     return buffer.getvalue()
 
 
+@pytest.mark.usefixtures("fake_model")
+def test_jamendo_track_can_be_analyzed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Analyzing a Jamendo track shows the prediction next to the track's genre tags."""
+    _FakeJamendo.queries = []
+    monkeypatch.setenv("JAMENDO_CLIENT_ID", "test-client")
+    monkeypatch.setattr("music_genre_classification.jamendo.JamendoClient", _FakeJamendo)
+
+    at = AppTest.from_file(str(APP_PATH)).run()
+    _labeled(at.text_input, "Search").set_value("jazz")
+    _clickable(at.button, "Search").click().run()
+    _clickable(at.button, "Analyze").click().run()
+
+    assert not at.exception
+    assert not at.error
+    assert at.metric[0].value == "Jazz"
+    assert any("Jamendo tags: jazz" in item.value for item in at.success)
+
+
+class _FakeClassifier:
+    """Classifier that predicts the second genre for every segment."""
+
+    name: ClassVar[str] = "fake"
+    genres: ClassVar[tuple[str, ...]] = ("blues", "jazz")
+
+    @classmethod
+    def load(cls, _path: Path) -> Self:
+        """Return a new fake classifier.
+
+        Returns:
+            The classifier.
+        """
+        return cls()
+
+    def predict_proba(  # ruff: ignore[no-self-use]
+        self, features: np.ndarray
+    ) -> np.ndarray:
+        """Predict jazz with high probability for every segment.
+
+        Returns:
+            One row of probabilities per segment.
+        """
+        return np.tile([0.2, 0.8], (len(features), 1))
+
+
 class _FakeJamendo:
     """Stand-in client that records queries and returns two pages."""
 
@@ -118,6 +188,14 @@ class _FakeJamendo:
 
     def __exit__(self, *_exc: object) -> None:
         """Close the fake client."""
+
+    def download(self, _url: str) -> bytes:  # ruff: ignore[no-self-use]
+        """Return a seven second recording.
+
+        Returns:
+            The bytes of a wav file.
+        """
+        return _wav_bytes(seconds=7)
 
     def search_tracks(self, query: TrackQuery) -> TrackPage:
         """Record the query and return a single fake track.
