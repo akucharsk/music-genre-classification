@@ -23,6 +23,11 @@ class GenreClassifier(Protocol):
 
     name: ClassVar[str]
 
+    @property
+    def genres(self) -> tuple[str, ...]:
+        """Genre names; the columns of ``predict_proba`` follow this order."""
+        ...
+
     def fit(self, split: Split) -> None:
         """Train on the training part of a split, using the validation part to monitor progress.
 

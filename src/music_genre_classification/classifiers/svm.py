@@ -38,6 +38,12 @@ class SvmClassifier:
     def __init__(self) -> None:
         """Create an untrained classifier."""
         self._pipeline: Pipeline | None = None
+        self._genres: tuple[str, ...] = ()
+
+    @property
+    def genres(self) -> tuple[str, ...]:
+        """Genre names; the columns of ``predict_proba`` follow this order."""
+        return self._genres
 
     def fit(self, split: Split) -> None:
         """Fit PCA and the SVM on the training segments.
@@ -45,6 +51,7 @@ class SvmClassifier:
         Args:
             split: Train and validation datasets; only the training part is used.
         """
+        self._genres = split.train.genres
         flat = _flatten(split.train.features)
         components = min(PCA_COMPONENTS, *flat.shape)
         self._pipeline = make_pipeline(
@@ -80,7 +87,7 @@ class SvmClassifier:
             path: Destination file; parent directories are created.
         """
         path.parent.mkdir(parents=True, exist_ok=True)
-        joblib.dump(self._pipeline, path)
+        joblib.dump({"pipeline": self._pipeline, "genres": list(self._genres)}, path)
 
     @classmethod
     def load(cls, path: Path) -> Self:
@@ -92,8 +99,10 @@ class SvmClassifier:
         Returns:
             The restored classifier.
         """
+        payload = joblib.load(path)
         classifier = cls()
-        classifier._pipeline = joblib.load(path)
+        classifier._genres = tuple(payload["genres"])
+        classifier._pipeline = payload["pipeline"]
         return classifier
 
 

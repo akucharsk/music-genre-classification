@@ -14,7 +14,7 @@ from torch import nn
 from torch.nn import functional
 from torch.utils.data import DataLoader, TensorDataset
 
-from music_genre_classification.dataset import RANDOM_SEED
+from music_genre_classification.dataset import DEFAULT_FEATURE_DIM, GTZAN_GENRES, RANDOM_SEED
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -93,6 +93,11 @@ class TorchClassifier(ABC):
         self._network: nn.Module | None = None
         self._genres: tuple[str, ...] = ()
         self._feature_dim = 0
+
+    @property
+    def genres(self) -> tuple[str, ...]:
+        """Genre names; the columns of ``predict_proba`` follow this order."""
+        return self._genres
 
     @abstractmethod
     def build_network(self, num_classes: int, feature_dim: int) -> nn.Module:
@@ -214,20 +219,29 @@ class TorchClassifier(ABC):
 
     @classmethod
     def load(cls, path: Path) -> Self:
-        """Restore a classifier written by ``save``.
+        """Restore a classifier from a file written by ``save`` or by the original project.
+
+        The original project stored a bare ``state_dict``; such weights are assumed to be for the
+        ten GTZAN genres and 13 MFCC coefficients.
 
         Args:
-            path: File written by ``save``.
+            path: File to load.
 
         Returns:
             The restored classifier, ready to predict.
         """
         payload = torch.load(path, map_location=DEVICE, weights_only=True)
+        if "state_dict" in payload:
+            weights = payload["state_dict"]
+            genres = tuple(payload["genres"])
+            feature_dim = int(payload["feature_dim"])
+        else:
+            weights, genres, feature_dim = payload, GTZAN_GENRES, DEFAULT_FEATURE_DIM
         classifier = cls()
-        classifier._genres = tuple(payload["genres"])
-        classifier._feature_dim = int(payload["feature_dim"])
-        network = classifier.build_network(len(classifier._genres), classifier._feature_dim)
-        network.load_state_dict(payload["state_dict"])
+        classifier._genres = genres
+        classifier._feature_dim = feature_dim
+        network = classifier.build_network(len(genres), feature_dim)
+        network.load_state_dict(weights)
         classifier._network = network.to(DEVICE)
         return classifier
 

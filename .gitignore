@@ -21,7 +21,8 @@ htmlcov/
 
 # Data and models
 data/
-models/
+models/*
+!models/*.pt
 
 # OS / editors
 .DS_Store

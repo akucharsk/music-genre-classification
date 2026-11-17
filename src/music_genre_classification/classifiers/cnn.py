@@ -31,13 +31,12 @@ class CnnNetwork(nn.Module):
             num_classes: Number of genres to predict.
         """
         super().__init__()
-        blocks: list[nn.Module] = []
-        in_channels = 1
-        for out_channels in CHANNELS:
-            blocks.append(_conv_block(in_channels, out_channels))
-            in_channels = out_channels
-        self.features = nn.Sequential(*blocks, nn.AdaptiveAvgPool2d((1, 1)), nn.Flatten())
-        self.head = nn.Sequential(
+        # Layer names match the weights of the original project so they load unchanged.
+        self.conv1 = _conv_block(1, CHANNELS[0])
+        self.conv2 = _conv_block(CHANNELS[0], CHANNELS[1])
+        self.conv3 = _conv_block(CHANNELS[1], CHANNELS[2])
+        self.global_avg = nn.AdaptiveAvgPool2d((1, 1))
+        self.fc = nn.Sequential(
             nn.Linear(CHANNELS[-1], HEAD_HIDDEN),
             nn.ReLU(),
             nn.Dropout(HEAD_DROPOUT),
@@ -54,7 +53,8 @@ class CnnNetwork(nn.Module):
         Returns:
             Tensor of shape (batch, classes).
         """
-        logits: torch.Tensor = self.head(self.features(x))
+        pooled = self.global_avg(self.conv3(self.conv2(self.conv1(x))))
+        logits: torch.Tensor = self.fc(torch.flatten(pooled, 1))
         return logits
 
 

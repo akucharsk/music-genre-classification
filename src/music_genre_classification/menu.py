@@ -44,6 +44,7 @@ ACTIONS = (
     Action("train-svm", "Train the SVM classifier"),
     Action("train-cnn", "Train the CNN classifier"),
     Action("train-transformer", "Train the Transformer classifier"),
+    Action("import-weights", "Import weights of the original project"),
     Action("install", "Install dependencies and git hooks"),
 )
 

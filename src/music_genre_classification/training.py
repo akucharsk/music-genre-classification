@@ -9,7 +9,11 @@ from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from music_genre_classification.classifiers.registry import CLASSIFIERS
+from music_genre_classification.classifiers.registry import (
+    CLASSIFIERS,
+    DEFAULT_MODEL_DIR,
+    model_path,
+)
 from music_genre_classification.classifiers.torch_base import TorchClassifier
 from music_genre_classification.data_preprocessing import DEFAULT_OUTPUT_PATH
 from music_genre_classification.dataset import load_dataset, split_dataset
@@ -21,22 +25,6 @@ if TYPE_CHECKING:
     from music_genre_classification.classifiers.base import GenreClassifier
 
 LOGGER = logging.getLogger(__name__)
-
-DEFAULT_MODEL_DIR = Path("models")
-MODEL_SUFFIXES = {"svm": ".joblib", "cnn": ".pt", "transformer": ".pt"}
-
-
-def model_path(name: str, directory: Path = DEFAULT_MODEL_DIR) -> Path:
-    """Return where a trained model of the given kind is stored.
-
-    Args:
-        name: Classifier name, one of ``CLASSIFIERS``.
-        directory: Directory holding trained models.
-
-    Returns:
-        Path of the model file.
-    """
-    return directory / f"{name}{MODEL_SUFFIXES[name]}"
 
 
 def train(

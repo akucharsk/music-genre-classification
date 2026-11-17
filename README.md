@@ -14,7 +14,7 @@ country, disco, hiphop, jazz, metal, pop, reggae, rock). The raw data is not sto
 - [x] 1. Dataset selection and repository setup (uv, ruff, mypy strict, pytest, pre-commit, CI, Dependabot)
 - [x] 2. Preprocessing
 - [x] 3. Model training
-- [ ] 4. App prototype
+- [x] 4. App prototype
 - [ ] 5. Deployment
 
 ## Setup
@@ -77,6 +77,25 @@ uv run python -m music_genre_classification.training --model cnn --epochs 50   #
 The split into train and validation sets never puts segments of one track into both parts.
 All classifiers implement `GenreClassifier` (`fit`, `predict_proba`, `save`, `load`) in
 `src/music_genre_classification/classifiers/`.
+
+## Models
+
+The app lists the trained models found in `models/` (SVM `svm.joblib`, CNN `cnn.pt`, Transformer
+`transformer.pt`) in the sidebar. After uploading a file or choosing a Jamendo track, **Analyze**
+cuts the first five minutes into 3 s segments, classifies each one and shows the predicted genre,
+the share of segments won by every genre, the probabilities over time, a genre-by-time heatmap and
+the MFCC features. For Jamendo tracks the prediction is compared with the track's genre tags.
+
+The CNN and Transformer weights were trained in the original (unstructured) version of the project.
+Our classes use the same layer names, so those files load unchanged:
+
+```sh
+make import-weights                    # copies them from genre_classifier/models to models/
+make import-weights WEIGHTS_DIR=path   # or from another directory
+```
+
+`models/*.pt` is tracked in git (a few MB) so the app works after a fresh clone; other files in
+`models/` are ignored. Models trained with `make train-*` overwrite the files of the same name.
 
 ## Makefile
 

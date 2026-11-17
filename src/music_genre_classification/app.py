@@ -6,10 +6,14 @@ from __future__ import annotations
 import os
 from typing import TYPE_CHECKING
 
-import numpy as np
 import streamlit as st
 from streamlit.errors import StreamlitSecretNotFoundError
 
+from music_genre_classification.classifiers.registry import (
+    CLASSIFIERS,
+    available_models,
+    model_path,
+)
 from music_genre_classification.data_preprocessing import (
     AudioError,
     MfccConfig,
@@ -38,18 +42,26 @@ from music_genre_classification.jamendo import (
     download_filename,
     is_jamendo_media_url,
 )
+from music_genre_classification.prediction import predict_track
+from music_genre_classification.results import mfcc_image, render_prediction
 
 if TYPE_CHECKING:
-    from numpy.typing import NDArray
+    from music_genre_classification.classifiers.base import GenreClassifier
 
 AUDIO_EXTENSIONS = ("wav", "mp3", "ogg", "flac", "m4a", "aac")
 PAGE_SIZES = (10, 20, 50)
 SECONDS_PER_MINUTE = 60
 MFCC_CONFIG = MfccConfig()
-MFCC_ROW_HEIGHT = 12
 ANALYZE_LABEL = "Analyze"
 DECODE_ERROR = "Could not read this audio file."
 TOO_SHORT = "The audio is shorter than one segment, nothing to analyze."
+MODEL_KEY = "model"
+MAX_ANALYSIS_SECONDS = 300
+NO_MODELS = (
+    "No trained models found in `models/`. Train one with `make train-svm`, `make train-cnn` or "
+    "`make train-transformer`, or copy existing weights with `make import-weights`."
+)
+MODEL_ERROR = "Could not load the selected model."
 QUERY_KEY = "jamendo_query"
 SEARCH_FORM_KEY = "jamendo-search"
 CLIENT_ID_SETTING = "JAMENDO_CLIENT_ID"
@@ -138,40 +150,60 @@ def _render_upload() -> None:
             _render_analysis(audio_file.getvalue())
 
 
-def _render_analysis(audio: bytes) -> None:
-    """Extract MFCC features from audio and show them as an image.
+def _model_picker() -> None:
+    """Show the model selector in the sidebar, or explain how to get a model."""
+    names = available_models()
+    if not names:
+        st.sidebar.warning(NO_MODELS)
+        return
+    st.sidebar.selectbox("Model", names, key=MODEL_KEY)
+
+
+@st.cache_resource
+def _load_classifier(name: str) -> GenreClassifier:
+    """Load a trained classifier once and keep it between reruns.
+
+    Args:
+        name: Classifier name, one of the registered classifiers.
+
+    Returns:
+        The trained classifier.
+    """
+    return CLASSIFIERS[name].load(model_path(name))
+
+
+def _render_analysis(audio: bytes, tags: tuple[str, ...] = ()) -> None:
+    """Classify the audio with the selected model and show the results.
 
     Args:
         audio: Raw bytes of an audio file.
+        tags: Genre tags the audio's source gives for it, shown next to the prediction.
     """
-    with st.spinner("Extracting features..."):
+    name = st.session_state.get(MODEL_KEY)
+    if not isinstance(name, str):
+        st.warning(NO_MODELS)
+        return
+    with st.spinner("Analyzing..."):
         try:
-            segments = extract_audio_mfcc(audio, MFCC_CONFIG)
+            segments = extract_audio_mfcc(audio, MFCC_CONFIG, max_seconds=MAX_ANALYSIS_SECONDS)
         except AudioError:
             st.error(DECODE_ERROR)
             return
-    if not segments:
-        st.warning(TOO_SHORT)
-        return
+        if not segments:
+            st.warning(TOO_SHORT)
+            return
+        try:
+            prediction = predict_track(_load_classifier(name), segments)
+        except (OSError, RuntimeError, KeyError, ValueError):
+            st.error(MODEL_ERROR)
+            return
     st.caption(
-        f"{len(segments)} segments x {len(segments[0])} frames x {MFCC_CONFIG.num_mfcc} MFCCs"
+        f"{len(segments)} segments of {prediction.segment_seconds:.0f} s classified by the "
+        f"{name} model (first {MAX_ANALYSIS_SECONDS // SECONDS_PER_MINUTE} minutes at most)."
     )
-    st.image(_mfcc_image(segments), width="stretch", caption="MFCC over time")
-
-
-def _mfcc_image(segments: list[list[list[float]]]) -> NDArray[np.float64]:
-    """Join segment MFCCs along time and scale them to a grayscale image in [0, 1].
-
-    Args:
-        segments: One MFCC matrix (frames by coefficients) per audio segment.
-
-    Returns:
-        Array with one block of rows per coefficient and one column per frame.
-    """
-    matrix = np.concatenate([np.asarray(segment) for segment in segments]).T
-    span = np.ptp(matrix)
-    scaled = (matrix - matrix.min()) / span if span else np.zeros_like(matrix)
-    return np.repeat(scaled, MFCC_ROW_HEIGHT, axis=0)
+    render_prediction(prediction, tags)
+    with st.expander("MFCC features"):
+        st.image(mfcc_image(segments), width="stretch", caption="MFCC over time")
 
 
 def _render_jamendo() -> None:
@@ -527,7 +559,7 @@ def _render_track_analysis(client_id: str, track: Track, key: str) -> None:
         except JamendoError as error:
             st.error(str(error))
             return
-        _render_analysis(audio)
+        _render_analysis(audio, track.genres)
 
 
 def _render_download(client_id: str, track: Track, audio_format: str, key: str) -> None:
@@ -565,6 +597,7 @@ def _render_download(client_id: str, track: Track, audio_format: str, key: str) 
 st.set_page_config(page_title="Music Genre Classification")
 st.title("Music Genre Classification")
 
+_model_picker()
 upload_tab, jamendo_tab = st.tabs(["Upload", "Jamendo"])
 with upload_tab:
     _render_upload()

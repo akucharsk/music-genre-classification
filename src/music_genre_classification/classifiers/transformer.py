@@ -79,7 +79,8 @@ class TransformerNetwork(nn.Module):
             feature_dim: Number of MFCC coefficients per frame.
         """
         super().__init__()
-        self.input_projection = nn.Linear(feature_dim, D_MODEL)
+        # Layer names match the weights of the original project so they load unchanged.
+        self.input_proj = nn.Linear(feature_dim, D_MODEL)
         self.positional_encoding = PositionalEncoding(D_MODEL)
         layer = nn.TransformerEncoderLayer(
             d_model=D_MODEL,
@@ -88,8 +89,8 @@ class TransformerNetwork(nn.Module):
             dropout=DROPOUT,
             batch_first=True,
         )
-        self.encoder = nn.TransformerEncoder(layer, num_layers=NUM_LAYERS)
-        self.head = nn.Sequential(
+        self.transformer = nn.TransformerEncoder(layer, num_layers=NUM_LAYERS)
+        self.classifier = nn.Sequential(
             nn.Linear(D_MODEL, HEAD_HIDDEN),
             nn.ReLU(),
             nn.Dropout(DROPOUT),
@@ -106,8 +107,8 @@ class TransformerNetwork(nn.Module):
         Returns:
             Tensor of shape (batch, classes).
         """
-        encoded = self.encoder(self.positional_encoding(self.input_projection(x)))
-        logits: torch.Tensor = self.head(encoded.mean(dim=1))
+        encoded = self.transformer(self.positional_encoding(self.input_proj(x)))
+        logits: torch.Tensor = self.classifier(encoded.mean(dim=1))
         return logits
 
 

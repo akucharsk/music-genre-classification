@@ -8,15 +8,16 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 import pytest
+import torch
 
 from music_genre_classification.classifiers.cnn import CnnClassifier
-from music_genre_classification.classifiers.registry import CLASSIFIERS
+from music_genre_classification.classifiers.registry import CLASSIFIERS, model_path
 from music_genre_classification.classifiers.svm import SvmClassifier
 from music_genre_classification.classifiers.torch_base import TorchClassifier
 from music_genre_classification.classifiers.transformer import TransformerClassifier
-from music_genre_classification.dataset import split_dataset
+from music_genre_classification.dataset import GTZAN_GENRES, split_dataset
 from music_genre_classification.evaluation import evaluate
-from music_genre_classification.training import main, model_path, train
+from music_genre_classification.training import main, train
 from tests.test_dataset import synthetic_dataset, write_json
 
 if TYPE_CHECKING:
@@ -137,3 +138,24 @@ def test_main_trains_a_neural_network_with_epoch_override(tmp_path: Path) -> Non
     ])
 
     assert model_path("transformer", models).exists()
+
+
+@pytest.mark.parametrize(
+    ("cls", "layer_name"),
+    [(CnnClassifier, "conv1.0.weight"), (TransformerClassifier, "input_proj.weight")],
+)
+def test_weights_of_the_original_project_load_unchanged(
+    cls: type[TorchClassifier], layer_name: str, tmp_path: Path
+) -> None:
+    """A bare state_dict with the original layer names is accepted for the GTZAN genres."""
+    network = cls().build_network(len(GTZAN_GENRES), 13)
+    state = network.state_dict()
+    assert layer_name in state
+    path = tmp_path / "original.pth"
+    torch.save(state, path)
+
+    restored = cls.load(path)
+
+    assert restored.genres == GTZAN_GENRES
+    features = np.random.default_rng(0).normal(size=(3, 130, 13))
+    assert restored.predict_proba(features).shape == (3, len(GTZAN_GENRES))

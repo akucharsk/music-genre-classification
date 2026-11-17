@@ -20,6 +20,20 @@ if TYPE_CHECKING:
 REQUIRED_KEYS = ("genres", "labels", "tracks", "mfcc")
 VALIDATION_FOLDS = 5  # one fold, i.e. 20 %, is held out for validation
 RANDOM_SEED = 42
+# Genres of GTZAN in the alphabetical order the preprocessing step labels them in.
+GTZAN_GENRES = (
+    "blues",
+    "classical",
+    "country",
+    "disco",
+    "hiphop",
+    "jazz",
+    "metal",
+    "pop",
+    "reggae",
+    "rock",
+)
+DEFAULT_FEATURE_DIM = 13
 
 
 @dataclass(frozen=True, slots=True)
