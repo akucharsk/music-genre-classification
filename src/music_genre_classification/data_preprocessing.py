@@ -184,7 +184,9 @@ def extract_track(path: Path, config: MfccConfig) -> list[list[list[float]]]:
     return [matrix for matrix in matrices if len(matrix) == config.frames_per_segment]
 
 
-def extract_audio_mfcc(source: bytes | Path, config: MfccConfig) -> list[list[list[float]]]:
+def extract_audio_mfcc(
+    source: bytes | Path, config: MfccConfig, *, max_seconds: float | None = None
+) -> list[list[list[float]]]:
     """Extract MFCC matrices from one audio file or in-memory recording of any length.
 
     Uses the same segment size and MFCC parameters as dataset building, so the features match
@@ -193,6 +195,7 @@ def extract_audio_mfcc(source: bytes | Path, config: MfccConfig) -> list[list[li
     Args:
         source: Audio file path or the raw bytes of an audio file (e.g. an upload or download).
         config: Extraction parameters.
+        max_seconds: Only the first this many seconds are analyzed; the whole audio when omitted.
 
     Returns:
         One MFCC matrix per full segment; empty when the audio is shorter than one segment.
@@ -202,7 +205,7 @@ def extract_audio_mfcc(source: bytes | Path, config: MfccConfig) -> list[list[li
     """
     target = io.BytesIO(source) if isinstance(source, bytes) else source
     try:
-        signal, _ = librosa.load(target, sr=SAMPLE_RATE)
+        signal, _ = librosa.load(target, sr=SAMPLE_RATE, duration=max_seconds)
     except Exception as error:
         msg = "Could not decode the audio."
         raise AudioError(msg) from error
