@@ -147,7 +147,7 @@ def _render_upload() -> None:
         st.audio(audio_file, format=audio_file.type)
         st.caption(audio_file.name)
         if st.button(ANALYZE_LABEL, key="analyze-upload"):
-            _render_analysis(audio_file.getvalue())
+            _render_analysis(audio_file.getvalue(), "upload")
 
 
 def _model_picker() -> None:
@@ -172,11 +172,12 @@ def _load_classifier(name: str) -> GenreClassifier:
     return CLASSIFIERS[name].load(model_path(name))
 
 
-def _render_analysis(audio: bytes, tags: tuple[str, ...] = ()) -> None:
+def _render_analysis(audio: bytes, key: str, tags: tuple[str, ...] = ()) -> None:
     """Classify the audio with the selected model and show the results.
 
     Args:
         audio: Raw bytes of an audio file.
+        key: Unique suffix for the widget keys of this analysis.
         tags: Genre tags the audio's source gives for it, shown next to the prediction.
     """
     name = st.session_state.get(MODEL_KEY)
@@ -201,7 +202,7 @@ def _render_analysis(audio: bytes, tags: tuple[str, ...] = ()) -> None:
         f"{len(segments)} segments of {prediction.segment_seconds:.0f} s classified by the "
         f"{name} model (first {MAX_ANALYSIS_SECONDS // SECONDS_PER_MINUTE} minutes at most)."
     )
-    render_prediction(prediction, tags)
+    render_prediction(prediction, tags, key)
     with st.expander("MFCC features"):
         st.image(mfcc_image(segments), width="stretch", caption="MFCC over time")
 
@@ -559,7 +560,7 @@ def _render_track_analysis(client_id: str, track: Track, key: str) -> None:
         except JamendoError as error:
             st.error(str(error))
             return
-        _render_analysis(audio, track.genres)
+        _render_analysis(audio, f"track-{key}", track.genres)
 
 
 def _render_download(client_id: str, track: Track, audio_format: str, key: str) -> None:
