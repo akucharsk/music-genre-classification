@@ -65,3 +65,21 @@ def test_predict_track_needs_segments() -> None:
     """An empty track is rejected."""
     with pytest.raises(ValueError, match="segment"):
         predict_track(_FixedClassifier([]), [])  # type: ignore[arg-type]
+
+
+def test_binned_averages_probabilities_over_longer_steps() -> None:
+    """Segments are grouped by the step they start in and their probabilities averaged."""
+    binned = _prediction().binned(6.0)
+
+    assert binned.segment_seconds == pytest.approx(6.0)
+    assert binned.times.tolist() == [0.0, 6.0]
+    assert binned.probabilities[0].tolist() == pytest.approx([0.65, 0.25, 0.1])
+    assert binned.probabilities.sum(axis=1).tolist() == pytest.approx([1.0, 1.0])
+
+
+def test_binned_keeps_segments_when_the_step_is_not_longer() -> None:
+    """A step of at most one segment leaves the prediction unchanged."""
+    prediction = _prediction()
+
+    assert prediction.binned(3.0) is prediction
+    assert prediction.duration == pytest.approx(12.0)

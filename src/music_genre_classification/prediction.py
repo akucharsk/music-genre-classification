@@ -53,6 +53,33 @@ class Prediction:
         """
         return np.arange(len(self.probabilities), dtype=np.float64) * self.segment_seconds
 
+    @property
+    def duration(self) -> float:
+        """Length of the analyzed audio in seconds.
+
+        Returns:
+            Number of segments times the segment duration.
+        """
+        return len(self.probabilities) * self.segment_seconds
+
+    def binned(self, seconds: float) -> Prediction:
+        """Average the probabilities over longer time steps.
+
+        Args:
+            seconds: Width of one time step; steps not longer than a segment change nothing.
+
+        Returns:
+            A prediction with one row per time step whose rows still sum to one.
+        """
+        if seconds <= self.segment_seconds:
+            return self
+        step_of_segment = (self.times // seconds).astype(np.intp)
+        means = np.stack([
+            self.probabilities[step_of_segment == step].mean(axis=0)
+            for step in np.unique(step_of_segment)
+        ])
+        return Prediction(self.genres, means, seconds)
+
     def top(self, count: int = 3) -> list[tuple[str, float]]:
         """Genres with the largest share of segments.
 

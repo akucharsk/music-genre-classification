@@ -65,6 +65,21 @@ def test_analyze_classifies_an_uploaded_file() -> None:
 
 
 @pytest.mark.usefixtures("fake_model")
+def test_heatmap_offers_time_steps_that_fit_the_track() -> None:
+    """A 40 s track gets time steps up to 30 s, starting with one column per segment."""
+    at = AppTest.from_file(str(APP_PATH)).run()
+    at.file_uploader[0].set_value(("clip.wav", _wav_bytes(seconds=40), "audio/wav"))
+    at.run()
+    _clickable(at.button, "Analyze").click().run()
+
+    steps = next(box for box in at.selectbox if box.label == "Time step")
+
+    assert not at.exception
+    assert steps.options == ["Every segment", "10 s", "30 s"]
+    assert steps.index == 0
+
+
+@pytest.mark.usefixtures("fake_model")
 def test_analyze_reports_undecodable_uploads() -> None:
     """Analyzing a broken upload shows an error instead of crashing."""
     at = AppTest.from_file(str(APP_PATH)).run()
